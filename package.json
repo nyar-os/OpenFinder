@@ -1,0 +1,25 @@
+{
+    "name": "@wae/open-finder-workspace",
+    "private": true,
+    "type": "module",
+    "packageManager": "pnpm@10.28.0",
+    "description": "OpenFinder workspace: Rust crates, npm application packages, CLI, skills, and VMZ UI",
+    "license": "Apache-2.0",
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build:napi": "node --experimental-strip-types scripts/build-napi.ts",
+        "build:ts": "pnpm --filter @wae/open-finder run build",
+        "build:ui": "pnpm --filter @wae/open-finder-ui run build",
+        "build": "pnpm run build:napi && pnpm run build:ts && pnpm run build:ui",
+        "stage:native": "node --experimental-strip-types scripts/stage-native.ts",
+        "check:skills": "node --experimental-strip-types scripts/check-skills.ts",
+        "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
+        "gui": "pnpm run build && pnpm --filter @wae/open-finder exec node ./dist/cli.js gui"
+    },
+    "devDependencies": {
+        "@types/node": "^22.20.4",
+        "typescript": "^5.9.2"
+    }
+}
