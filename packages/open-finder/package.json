@@ -1,0 +1,39 @@
+{
+    "name": "@wae/open-finder",
+    "version": "0.0.0",
+    "description": "OpenFinder meta package, typed library, and agent CLI",
+    "license": "Apache-2.0",
+    "type": "module",
+    "engines": {
+        "node": ">=22"
+    },
+    "bin": {
+        "open-finder": "./dist/cli.js"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "locales",
+        "Readme.md"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json"
+    },
+    "dependencies": {
+        "@wae/commander": "0.0.0"
+    },
+    "optionalDependencies": {
+        "@wae/open-finder-win32-x64": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^22.20.4",
+        "typescript": "^5.9.2"
+    }
+}

@@ -1,0 +1,340 @@
+<template>
+    <div class="app-root" data-app="open-finder">
+        <AppShell brand="OpenFinder" homeHref="/" navLabel="Navigation" activeId="home" :nav="navItems">
+            <div class="vmz-slot-content app-body">
+                <header class="app-head">
+                    <h1>
+                        {{ title }}
+                    </h1>
+                    <p>
+                        {{ lead }}
+                    </p>
+                </header>
+
+                <Card :title="capabilitiesTitle" :description="capabilitiesDesc">
+                    <div class="app-actions">
+                        <Button type="button" :loading="loadingCapabilities" :disabled="loadingCapabilities" @click="loadCapabilities">
+                            {{ capabilitiesLabel }}
+                        </Button>
+                        <Button type="button" variant="secondary" @click="closeWindow">
+                            {{ closeLabel }}
+                        </Button>
+                    </div>
+                    <Alert v-if="error" tone="danger" roleName="alert" :title="errorTitle" :description="error" />
+                    <Alert v-else-if="status" tone="info" roleName="status" :title="statusTitle" :description="status" />
+                    <Empty v-if="!capabilityRows.length && !loadingCapabilities" :title="emptyTitle" :description="emptyDesc" />
+                    <Table v-else :columns="capabilityColumns" :rows="capabilityRows" :hasRowAction="false" />
+                </Card>
+
+                <Card :title="inspectTitle" :description="inspectDesc">
+                    <Field
+                        :label="rootLabel"
+                        :description="rootDesc"
+                        controlId="app-root"
+                        descriptionId="app-root-desc"
+                        errorId="app-root-err"
+                        describedBy="app-root-desc"
+                        :value="root"
+                        :placeholder="rootPlaceholder"
+                        @input="onRootInput"
+                    />
+                    <div class="app-actions">
+                        <Button type="button" :loading="inspecting" :disabled="inspecting" @click="runInspect">
+                            {{ inspectLabel }}
+                        </Button>
+                    </div>
+                    <div class="app-stats">
+                        <div class="app-stat">
+                            <div class="app-stat__label">
+                                {{ totalLabel }}
+                            </div>
+                            <div class="app-stat__value">
+                                {{ totalText }}
+                            </div>
+                        </div>
+                        <div class="app-stat">
+                            <div class="app-stat__label">
+                                {{ countLabel }}
+                            </div>
+                            <div class="app-stat__value">
+                                {{ countText }}
+                            </div>
+                        </div>
+                    </div>
+                    <Empty v-if="!entryRows.length && !inspecting" :title="emptyEntriesTitle" :description="emptyEntriesDesc" />
+                    <Table v-else :columns="entryColumns" :rows="entryRows" :hasRowAction="false" />
+                </Card>
+
+                <Card :title="installTitle" :description="installDesc">
+                    <div class="app-actions">
+                        <Button type="button" :loading="planning" :disabled="planning" @click="planInstall">
+                            {{ planInstallLabel }}
+                        </Button>
+                        <Button type="button" variant="secondary" :loading="planning" :disabled="planning" @click="planUninstall">
+                            {{ planUninstallLabel }}
+                        </Button>
+                    </div>
+                    <Empty v-if="!planRows.length && !planning" :title="emptyPlanTitle" :description="emptyPlanDesc" />
+                    <Table v-else :columns="planColumns" :rows="planRows" :hasRowAction="false" />
+                </Card>
+            </div>
+        </AppShell>
+    </div>
+</template>
+
+<style>
+.app-root {
+    min-height: 100vh;
+}
+.app-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vmz-space-4, 1rem);
+    width: min(var(--vmz-layout-max-width, 75rem), calc(100% - (var(--vmz-layout-gutter, 1rem) * 2)));
+    margin: 0 auto;
+}
+.app-head h1 {
+    margin: 0 0 0.35rem;
+    font-size: 1.35rem;
+}
+.app-head p {
+    margin: 0;
+    color: var(--vmz-text-steel, var(--vmz-text-muted, #8b93a7));
+}
+.app-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vmz-space-2, 0.5rem);
+    margin: var(--vmz-space-3, 0.75rem) 0;
+}
+.app-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--vmz-space-3, 0.75rem);
+    margin-bottom: var(--vmz-space-4, 1rem);
+}
+.app-stat {
+    padding: var(--vmz-space-3, 0.75rem);
+    border: 1px solid var(--vmz-line-default, #e5e6eb);
+    border-radius: var(--vmz-radius-md, 8px);
+    background: var(--vmz-surface-mist, var(--vmz-surface-paper, #f7f8fa));
+}
+.app-stat__label {
+    color: var(--vmz-text-steel, #8b93a7);
+    font-size: 0.75rem;
+}
+.app-stat__value {
+    margin-top: 0.25rem;
+    font-variant-numeric: tabular-nums;
+    font-size: 1.1rem;
+}
+@media (max-width: 720px) {
+    .app-stats {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<script client>
+/**
+ * Application page.
+ *
+ * The page only renders results. Scanning, install planning, and auditing all
+ * live in the Rust `core` and `napi` crates. Requests go through the WebView
+ * bridge implemented by `wae::webview`.
+ */
+export default class IndexPage {
+    title = "OpenFinder";
+    lead = "Open-X application skeleton. Capabilities are served by the native core.";
+    navItems = [{ id: "home", title: "Home", href: "/" }];
+
+    capabilitiesTitle = "Capabilities";
+    capabilitiesDesc = "Availability reported by crates/core. Unsupported or unfinished capabilities fail with structured codes.";
+    capabilitiesLabel = "Refresh capabilities";
+    closeLabel = "Close";
+    errorTitle = "Request failed";
+    statusTitle = "Status";
+    emptyTitle = "No capability report yet";
+    emptyDesc = "Refresh to read the capability table.";
+    status = "";
+
+    inspectTitle = "Inspect";
+    inspectDesc = "Read-only directory inspection. Limit entries to keep the report bounded.";
+    rootLabel = "Root directory";
+    rootDesc = "Absolute path to inspect. Leave empty to use the system temp directory.";
+    rootPlaceholder = "Empty = system temp";
+    inspectLabel = "Inspect";
+    totalLabel = "Total bytes";
+    countLabel = "Entries";
+    emptyEntriesTitle = "No inspection yet";
+    emptyEntriesDesc = "Run an inspection to populate this table.";
+
+    installTitle = "Host install";
+    installDesc = "Plan the shortcut and configuration layout. Applying is an application-owned capability.";
+    planInstallLabel = "Plan install";
+    planUninstallLabel = "Plan uninstall";
+    emptyPlanTitle = "No plan yet";
+    emptyPlanDesc = "Plan an install or uninstall to preview host actions.";
+
+    loadingCapabilities = false;
+    inspecting = false;
+    planning = false;
+    error = "";
+    root = "";
+    totalText = "—";
+    countText = "—";
+    capabilityColumns = [
+        { id: "id", title: "Capability" },
+        { id: "state", title: "State" },
+        { id: "detail", title: "Detail" },
+    ];
+    capabilityRows = [];
+    entryColumns = [
+        { id: "kind", title: "Kind" },
+        { id: "bytes", title: "Size", align: "right" },
+        { id: "path", title: "Path" },
+    ];
+    entryRows = [];
+    planColumns = [
+        { id: "kind", title: "Action" },
+        { id: "target", title: "Target" },
+        { id: "detail", title: "Detail" },
+    ];
+    planRows = [];
+
+    onMount() {
+        this.installHostBridge();
+        const bridge = globalThis.chrome && globalThis.chrome.webview;
+        if (bridge && bridge.postMessage) this.loadCapabilities();
+    }
+
+    installHostBridge() {
+        const handler = (event) => {
+            let data = event && typeof event === "object" && "data" in event ? event.data : event;
+            if (typeof data === "string") {
+                try {
+                    data = JSON.parse(data);
+                } catch {
+                    return;
+                }
+            }
+            this.handleReply(data);
+        };
+        const bridge = globalThis.chrome && globalThis.chrome.webview;
+        if (bridge && bridge.addEventListener) bridge.addEventListener("message", handler);
+        globalThis.__waeReceive = (text) => {
+            try {
+                handler(JSON.parse(text));
+            } catch {
+                // Ignore malformed host messages.
+            }
+        };
+    }
+
+    post(message) {
+        const payload = JSON.stringify(message);
+        const win = globalThis.chrome && globalThis.chrome.webview;
+        if (win && win.postMessage) {
+            win.postMessage(payload);
+            return true;
+        }
+        const webkit = globalThis.webkit && globalThis.webkit.messageHandlers;
+        if (webkit && webkit.wae) {
+            webkit.wae.postMessage(payload);
+            return true;
+        }
+        this.error = "Native bridge unavailable (open this page through the host).";
+        return false;
+    }
+
+    handleReply(data) {
+        if (!data || typeof data !== "object") return;
+        if (data.ok !== true) {
+            this.pending = "";
+            this.loadingCapabilities = false;
+            this.inspecting = false;
+            this.planning = false;
+            const failure = data.error;
+            this.error = typeof failure === "string" ? failure : String((failure && failure.message) || "unknown error");
+            this.status = "";
+            return;
+        }
+        const value = data.data || {};
+        if (Array.isArray(value.items)) {
+            this.loadingCapabilities = false;
+            this.error = "";
+            this.status = "Capability report updated.";
+            this.capabilityRows = value.items.map((item, index) => ({
+                id: String(index),
+                cells: [String(item.id || ""), String(item.state || "supported"), String(item.detail || "")],
+            }));
+            return;
+        }
+        if (Array.isArray(value.entries)) {
+            this.inspecting = false;
+            this.error = "";
+            this.status = "Inspection complete.";
+            this.totalText = this.formatBytes(Number(value.totalBytes) || 0);
+            this.countText = `${Number(value.entryCount) || 0}${value.truncated ? " (truncated)" : ""}`;
+            this.entryRows = value.entries.map((entry, index) => ({
+                id: String(index),
+                cells: [String(entry.kind || ""), this.formatBytes(Number(entry.bytes) || 0), String(entry.path || "")],
+            }));
+            return;
+        }
+        if (Array.isArray(value.actions)) {
+            this.planning = false;
+            this.error = "";
+            this.status = value.configExists === undefined ? "Install plan ready." : "Uninstall plan ready.";
+            this.planRows = value.actions.map((action, index) => ({
+                id: String(index),
+                cells: [String(action.kind || ""), String(action.target || ""), String(action.detail || "")],
+            }));
+            return;
+        }
+        this.loadingCapabilities = false;
+        this.inspecting = false;
+        this.planning = false;
+    }
+
+    onRootInput(event) {
+        this.root = event && event.target ? String(event.target.value || "") : "";
+    }
+
+    loadCapabilities() {
+        this.loadingCapabilities = true;
+        this.error = "";
+        if (!this.post({ type: "capabilities" })) this.loadingCapabilities = false;
+    }
+
+    runInspect() {
+        this.inspecting = true;
+        this.error = "";
+        const root = (this.root || "").trim();
+        if (!this.post({ type: "inspect", root: root || undefined, limit: 200 })) this.inspecting = false;
+    }
+
+    planInstall() {
+        this.planning = true;
+        this.error = "";
+        if (!this.post({ type: "installPlan", noShortcut: false, resetConfig: false })) this.planning = false;
+    }
+
+    planUninstall() {
+        this.planning = true;
+        this.error = "";
+        if (!this.post({ type: "uninstallPlan", keepConfig: true })) this.planning = false;
+    }
+
+    closeWindow() {
+        this.post({ type: "close" });
+    }
+
+    formatBytes(value) {
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
+        if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+        return `${(value / 1024 ** 3).toFixed(2)} GB`;
+    }
+}
+</script>

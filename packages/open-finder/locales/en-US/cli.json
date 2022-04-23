@@ -1,0 +1,32 @@
+{
+    "cli": {
+        "intro": "open-finder — Open-X application skeleton scaffolded by wae. Non-interactive CLI for agents and humans.",
+        "cmd": {
+            "capabilities": "Report domain capabilities and their availability",
+            "inspect": "Inspect a directory tree without modifying it",
+            "install": "Install or upgrade the desktop shortcut and configuration (idempotent)",
+            "uninstall": "Remove the shortcut, configuration and install marker",
+            "gui": "Open the VMZ GUI window and pump host events until it closes",
+            "audit": "Read audit records for the current actor",
+            "version": "Print the native addon version"
+        },
+        "opt": {
+            "actor": "Audit actor id (user or agent name)",
+            "actor-kind": "Audit actor kind",
+            "actor-source": "Audit actor source (cli, plugin, gui, ...)",
+            "json": "Emit machine-readable JSON on stdout",
+            "root": "Directory to inspect",
+            "limit": "Maximum number of entries or audit records",
+            "dry-run": "Plan only, do not touch host state",
+            "no-shortcut": "Skip shortcut creation",
+            "reset-config": "Rewrite configuration instead of reusing it",
+            "keep-config": "Keep configuration during uninstall",
+            "content-dir": "Directory containing the staged GUI build",
+            "kind": "Filter audit records by actor kind",
+            "id": "Filter audit records by actor id",
+            "capability": "Filter audit records by capability id",
+            "from-ms": "Filter audit records from this Unix timestamp in milliseconds",
+            "to-ms": "Filter audit records up to this Unix timestamp in milliseconds"
+        }
+    }
+}

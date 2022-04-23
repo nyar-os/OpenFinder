@@ -1,0 +1,12 @@
+{
+    "name": "@wae/open-finder-skills",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Agent skills for OpenFinder",
+    "files": [
+        "skills",
+        "Readme.md"
+    ],
+    "license": "Apache-2.0"
+}

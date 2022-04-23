@@ -1,0 +1,32 @@
+{
+    "cli": {
+        "intro": "open-finder — 由 wae 生成的 Open-X 应用骨架。面向 agent 与人类的非交互 CLI。",
+        "cmd": {
+            "capabilities": "列出领域能力及其可用状态",
+            "inspect": "只读检查目录树",
+            "install": "安装或升级桌面快捷方式与配置（幂等）",
+            "uninstall": "移除快捷方式、配置与安装标记",
+            "gui": "打开 VMZ GUI 窗口并泵送宿主事件直到窗口关闭",
+            "audit": "读取当前调用者的审计记录",
+            "version": "打印原生插件版本"
+        },
+        "opt": {
+            "actor": "审计调用者 id（用户或 agent 名称）",
+            "actor-kind": "审计调用者类型",
+            "actor-source": "审计调用者来源（cli、plugin、gui 等）",
+            "json": "在 stdout 输出机器可读 JSON",
+            "root": "要检查的目录",
+            "limit": "条目或审计记录的最大数量",
+            "dry-run": "只做计划，不改动宿主状态",
+            "no-shortcut": "跳过快捷方式创建",
+            "reset-config": "重写配置而不是复用",
+            "keep-config": "卸载时保留配置",
+            "content-dir": "已暂存 GUI 构建的目录",
+            "kind": "按调用者类型过滤审计记录",
+            "id": "按调用者 id 过滤审计记录",
+            "capability": "按能力 id 过滤审计记录",
+            "from-ms": "按 Unix 毫秒时间戳过滤审计记录的起点",
+            "to-ms": "按 Unix 毫秒时间戳过滤审计记录的终点"
+        }
+    }
+}
