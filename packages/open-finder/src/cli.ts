@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Agent-facing CLI skeleton.
+ * Agent-facing CLI.
  *
  * Contract:
  * - non-interactive, always exits with a stable code
  * - `--json` returns `{ ok, data }` or `{ ok: false, error }`
  * - every mutating command supports `--dry-run`
  * - every command configures the audit actor before calling the native layer
+ * - exit codes: 0 success, 1 runtime failure, 2 usage, 3 capability unavailable
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,18 +19,27 @@ import {
     auditQuery,
     capabilities,
     configureAudit,
-    inspect,
+    defaultIndexDir,
+    indexBuild,
+    indexUpdate,
+    inspectVolume,
     installApply,
     installPlan,
     runGui,
+    search,
     uninstallApply,
     uninstallPlan,
     version,
+    walk,
+    type BuildReport,
     type CapabilityItem,
     type InstallPlan,
-    type InspectionReport,
     type PlannedAction,
+    type QuerySpec,
+    type SearchPage,
     type UninstallPlan,
+    type UpdateReport,
+    type VolumeReport,
 } from './index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -111,15 +121,61 @@ function formatActions(actions: PlannedAction[]): string {
     return actions.map((action) => `${action.kind}: ${action.target} — ${action.detail}`).join('\n');
 }
 
-function formatInspection(report: InspectionReport): string {
+function formatVolume(report: VolumeReport): string {
+    return [
+        `volume: ${report.volume}`,
+        `serial: ${report.volumeSerial}`,
+        `cluster: ${report.clusterSize} bytes`,
+        `record: ${report.recordSize} bytes`,
+        `mftRecords: ${report.recordCount}`,
+        `usn: ${report.journalId === null ? '(unavailable)' : `id ${report.journalId}, first ${report.firstUsn}, next ${report.nextUsn}`}`,
+        `requiresElevation: ${report.requiresElevation}`,
+    ].join('\n');
+}
+
+function formatBuild(report: BuildReport): string {
+    return [
+        `volume: ${report.volume}`,
+        `index: ${report.indexDir}`,
+        `records: ${report.scanned} scanned / ${report.recordCount}`,
+        `entries: ${report.entryCount}`,
+        `cursor: ${report.cursor}`,
+        `method: ${report.method}`,
+        `took: ${report.tookMs} ms`,
+    ].join('\n');
+}
+
+function formatUpdate(report: UpdateReport): string {
     const lines = [
-        `root: ${report.root}`,
-        `platform: ${report.platform}`,
-        `entries: ${report.entryCount}${report.truncated ? ' (truncated)' : ''}`,
-        `totalBytes: ${report.totalBytes}`,
+        `applied: ${report.applied}`,
+        `reloaded: ${report.reloaded}`,
+        `removed: ${report.removed}`,
+        `cursor: ${report.cursor}`,
+        `batches: ${report.batches}`,
+        `took: ${report.tookMs} ms`,
+    ];
+    if (report.needsRescan) lines.push('needsRescan: true — the journal no longer covers the saved cursor, rebuild with `index --volume <v>`');
+    return lines.join('\n');
+}
+
+function formatDuration(milliseconds: number): string {
+    return new Date(milliseconds).toISOString();
+}
+
+function formatPage(page: SearchPage): string {
+    const lines = [
+        `mode: ${page.mode} (indexed: ${page.indexed})`,
+        `root: ${page.root ?? '(unknown)'}`,
+        `total: ${page.total}`,
+        `page: ${page.offset}..${page.offset + page.hits.length}${page.hasMore ? ' (more available)' : ''}`,
+        `skipped: ${page.skipped}`,
+        `took: ${page.tookMs} ms`,
         '',
     ];
-    lines.push(...report.entries.map((entry) => `${entry.bytes}\t${entry.kind}\t${entry.path}`));
+    for (const hit of page.hits) {
+        const kind = hit.isDir ? 'dir ' : 'file';
+        lines.push(`${kind}\t${String(hit.size).padStart(10)}\t${formatDuration(hit.modifiedMs)}\t${hit.path}`);
+    }
     return lines.join('\n');
 }
 
@@ -152,6 +208,54 @@ function formatUninstall(plan: UninstallPlan): string {
     ].join('\n');
 }
 
+function queryFrom(options: ParsedOptions): QuerySpec {
+    const pattern = stringOption(options, 'pattern');
+    if (pattern !== undefined && flag(options, 'regex')) {
+        try {
+            new RegExp(pattern, 'i');
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new AppError({ code: 'invalid_argument', message: `invalid \`--pattern\` regex: ${message}` });
+        }
+    }
+    const kind = stringOption(options, 'kind');
+    if (kind !== undefined && kind !== 'file' && kind !== 'dir') {
+        throw new AppError({ code: 'invalid_argument', message: '`--kind` must be `file` or `dir`' });
+    }
+    const sort = stringOption(options, 'sort');
+    if (sort !== undefined && sort !== 'name' && sort !== 'path' && sort !== 'size' && sort !== 'modified') {
+        throw new AppError({ code: 'invalid_argument', message: '`--sort` must be `name`, `path`, `size`, or `modified`' });
+    }
+    return {
+        pattern,
+        regex: flag(options, 'regex'),
+        matchPath: flag(options, 'match-path'),
+        pathFilter: stringOption(options, 'path-filter'),
+        minSize: integerOption(options, 'min-size'),
+        maxSize: integerOption(options, 'max-size'),
+        modifiedAfterMs: integerOption(options, 'modified-after-ms'),
+        modifiedBeforeMs: integerOption(options, 'modified-before-ms'),
+        kind: kind as QuerySpec['kind'],
+        sort: sort as QuerySpec['sort'],
+        descending: flag(options, 'desc'),
+        limit: integerOption(options, 'limit'),
+        offset: integerOption(options, 'offset'),
+    };
+}
+
+function requiredVolume(options: ParsedOptions): string {
+    const volume = stringOption(options, 'volume');
+    if (volume === undefined) {
+        throw new AppError({ code: 'invalid_argument', message: '`--volume` is required, for example `--volume C:`' });
+    }
+    return volume;
+}
+
+function indexDirOption(options: ParsedOptions): string | undefined {
+    return stringOption(options, 'index-dir');
+}
+
 cli.command('capabilities', 'cli.cmd.capabilities')
     .actionCtx(async (options, _args, ctx) => {
         try {
@@ -165,17 +269,77 @@ cli.command('capabilities', 'cli.cmd.capabilities')
         }
     });
 
-cli.command('inspect', 'cli.cmd.inspect')
-    .option('--root <path>', 'cli.opt.root')
-    .option('--limit <n>', 'cli.opt.limit')
+cli.command('index', 'cli.cmd.index')
+    .option('--volume <volume>', 'cli.opt.volume')
+    .option('--index-dir <path>', 'cli.opt.index-dir')
+    .option('--record-limit <n>', 'cli.opt.record-limit')
+    .option('--update', 'cli.opt.update')
+    .option('--max-records <n>', 'cli.opt.max-records')
+    .option('--dry-run', 'cli.opt.dry-run')
     .actionCtx(async (options, _args, ctx) => {
         try {
             bootstrap(options);
-            const report = inspect({
-                root: stringOption(options, 'root'),
-                limit: integerOption(options, 'limit'),
+            if (flag(options, 'update')) {
+                const request = {
+                    indexDir: indexDirOption(options),
+                    maxRecords: integerOption(options, 'max-records'),
+                };
+                const report = indexUpdate(request);
+                emit(options, ctx, report, formatUpdate(report));
+                return EXIT.OK;
+            }
+            const volume = requiredVolume(options);
+            if (flag(options, 'dry-run')) {
+                const report = inspectVolume({ volume });
+                emit(options, ctx, report, formatVolume(report));
+                return EXIT.OK;
+            }
+            const report = indexBuild({
+                volume,
+                indexDir: indexDirOption(options),
+                recordLimit: integerOption(options, 'record-limit'),
             });
-            emit(options, ctx, report, formatInspection(report));
+            emit(options, ctx, report, formatBuild(report));
+            return EXIT.OK;
+        }
+        catch (error) {
+            return fail(options, ctx, error);
+        }
+    });
+
+cli.command('search', 'cli.cmd.search')
+    .option('--pattern <glob>', 'cli.opt.pattern')
+    .option('--regex', 'cli.opt.regex')
+    .option('--match-path', 'cli.opt.match-path')
+    .option('--path-filter <text>', 'cli.opt.path-filter')
+    .option('--min-size <n>', 'cli.opt.min-size')
+    .option('--max-size <n>', 'cli.opt.max-size')
+    .option('--modified-after-ms <n>', 'cli.opt.modified-after-ms')
+    .option('--modified-before-ms <n>', 'cli.opt.modified-before-ms')
+    .option('--kind <kind>', 'cli.opt.entry-kind', { enum: ['file', 'dir'] })
+    .option('--sort <key>', 'cli.opt.sort', { enum: ['name', 'path', 'size', 'modified'] })
+    .option('--desc', 'cli.opt.desc')
+    .option('--limit <n>', 'cli.opt.limit')
+    .option('--offset <n>', 'cli.opt.offset')
+    .option('--index-dir <path>', 'cli.opt.index-dir')
+    .option('--mode <mode>', 'cli.opt.mode', { enum: ['index', 'walk'] })
+    .option('--root <path>', 'cli.opt.root')
+    .option('--max-depth <n>', 'cli.opt.max-depth')
+    .option('--max-entries <n>', 'cli.opt.max-entries')
+    .actionCtx(async (options, _args, ctx) => {
+        try {
+            bootstrap(options);
+            const mode = stringOption(options, 'mode') ?? 'index';
+            const spec = queryFrom(options);
+            const page = mode === 'walk'
+                ? walk({
+                    ...spec,
+                    root: stringOption(options, 'root') ?? '.',
+                    maxDepth: integerOption(options, 'max-depth'),
+                    maxEntries: integerOption(options, 'max-entries'),
+                })
+                : search({ ...spec, indexDir: indexDirOption(options) });
+            emit(options, ctx, page, formatPage(page));
             return EXIT.OK;
         }
         catch (error) {
@@ -274,7 +438,7 @@ cli.command('version', 'cli.cmd.version')
         try {
             bootstrap(options);
             const current = version();
-            emit(options, ctx, { version: current }, current);
+            emit(options, ctx, { version: current, indexDir: defaultIndexDir() }, current);
             return EXIT.OK;
         }
         catch (error) {

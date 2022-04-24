@@ -15,7 +15,13 @@ const PLATFORM_PACKAGE = '@wae/open-finder-win32-x64';
 export interface NativeBindings {
     version(): string;
     capabilities(): unknown;
-    inspect(options?: { root?: string; limit?: number }): unknown;
+    platform(): string;
+    defaultIndexDir(): string;
+    inspectVolume(options: { volume: string }): unknown;
+    indexBuild(options: { volume: string; indexDir?: string; recordLimit?: number }): unknown;
+    indexUpdate(options: { indexDir?: string; maxRecords?: number }): unknown;
+    search(options: Record<string, unknown>): unknown;
+    searchWalk(options: Record<string, unknown>): unknown;
     installPlan(options?: { noShortcut?: boolean; resetConfig?: boolean }): unknown;
     installApply(options?: { noShortcut?: boolean; resetConfig?: boolean }): unknown;
     uninstallPlan(options?: { keepConfig?: boolean }): unknown;

@@ -13,7 +13,7 @@ import { projectRoot, resolveTarget, stageNative, type NativeTarget } from './st
 
 export async function buildNapi(root: string = projectRoot()): Promise<string> {
     const target: NativeTarget = resolveTarget();
-    const result = spawnSync(process.env.CARGO ?? 'cargo', ['build', '-p', 'open_finder-napi', '--release'], {
+    const result = spawnSync(process.env.CARGO ?? 'cargo', ['build', '-p', 'open-finder-napi', '--release'], {
         cwd: root,
         stdio: 'inherit',
         env: {

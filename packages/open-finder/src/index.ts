@@ -26,28 +26,105 @@ export interface CapabilitiesReport {
     notes: string[];
 }
 
-/** Options for directory inspection. */
-export interface InspectionOptions {
-    root?: string;
-    limit?: number;
+/** NTFS volume geometry and journal state. */
+export interface VolumeReport {
+    volume: string;
+    volumeSerial: number;
+    bytesPerSector: number;
+    clusterSize: number;
+    recordSize: number;
+    recordCount: number;
+    journalId: number | null;
+    firstUsn: number | null;
+    nextUsn: number | null;
+    requiresElevation: boolean;
 }
 
-/** One inspected filesystem entry. */
-export interface InspectionEntry {
-    path: string;
-    bytes: number;
-    kind: string;
-}
-
-/** Inspection report. */
-export interface InspectionReport {
-    root: string;
-    platform: string;
-    totalBytes: number;
+/** Result of a full `$MFT` index build. */
+export interface BuildReport {
+    volume: string;
+    indexDir: string;
+    volumeSerial: number;
+    recordSize: number;
+    recordCount: number;
+    scanned: number;
     entryCount: number;
-    truncated: boolean;
-    entries: InspectionEntry[];
-    inspectedAtUnixMs: number;
+    cursor: number;
+    tookMs: number;
+    method: string;
+}
+
+/** Result of an incremental USN journal update. */
+export interface UpdateReport {
+    applied: number;
+    reloaded: number;
+    removed: number;
+    cursor: number;
+    needsRescan: boolean;
+    batches: number;
+    tookMs: number;
+}
+
+/** Entry kind filter. */
+export type EntryKind = 'file' | 'dir';
+
+/** Sort key. */
+export type SortKey = 'name' | 'path' | 'size' | 'modified';
+
+/** Query filters and paging shared by indexed search and the portable walk. */
+export interface QuerySpec {
+    /** Glob pattern (`*` and `?`), or a regex when `regex` is true. */
+    pattern?: string;
+    regex?: boolean;
+    matchPath?: boolean;
+    pathFilter?: string;
+    minSize?: number;
+    maxSize?: number;
+    modifiedAfterMs?: number;
+    modifiedBeforeMs?: number;
+    kind?: EntryKind;
+    sort?: SortKey;
+    descending?: boolean;
+    limit?: number;
+    offset?: number;
+}
+
+/** Indexed search request. */
+export interface SearchOptions extends QuerySpec {
+    indexDir?: string;
+}
+
+/** Portable walk options. This mode is always reported as non-indexed. */
+export interface WalkOptions extends QuerySpec {
+    root: string;
+    maxDepth?: number;
+    maxEntries?: number;
+}
+
+/** One search result. */
+export interface SearchHit {
+    frn: number;
+    name: string;
+    path: string;
+    isDir: boolean;
+    size: number;
+    createdMs: number;
+    modifiedMs: number;
+    accessedMs: number;
+}
+
+/** One page of results. */
+export interface SearchPage {
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+    hits: SearchHit[];
+    mode: string;
+    indexed: boolean;
+    root: string | null;
+    skipped: number;
+    tookMs: number;
 }
 
 /** One planned host action. */
@@ -148,9 +225,39 @@ export function capabilities(): CapabilitiesReport {
     return invoke(() => loadNative().capabilities() as CapabilitiesReport);
 }
 
-/** Inspect a directory tree. */
-export function inspect(options: InspectionOptions = {}): InspectionReport {
-    return invoke(() => loadNative().inspect(options) as InspectionReport);
+/** Runtime platform name. */
+export function platform(): string {
+    return invoke(() => loadNative().platform());
+}
+
+/** Resolved index directory used when `--index-dir` is omitted. */
+export function defaultIndexDir(): string {
+    return invoke(() => loadNative().defaultIndexDir());
+}
+
+/** Inspect a volume without writing an index. */
+export function inspectVolume(options: { volume: string }): VolumeReport {
+    return invoke(() => loadNative().inspectVolume(options) as VolumeReport);
+}
+
+/** Build a full index by reading `$MFT`. */
+export function indexBuild(options: { volume: string; indexDir?: string; recordLimit?: number }): BuildReport {
+    return invoke(() => loadNative().indexBuild(options) as BuildReport);
+}
+
+/** Apply USN journal changes to an existing index. */
+export function indexUpdate(options: { indexDir?: string; maxRecords?: number } = {}): UpdateReport {
+    return invoke(() => loadNative().indexUpdate(options) as UpdateReport);
+}
+
+/** Query an existing index. */
+export function search(options: SearchOptions = {}): SearchPage {
+    return invoke(() => loadNative().search(options as Record<string, unknown>) as SearchPage);
+}
+
+/** Explicit non-index directory walk. */
+export function walk(options: WalkOptions): SearchPage {
+    return invoke(() => loadNative().searchWalk(options as unknown as Record<string, unknown>) as SearchPage);
 }
 
 /** Plan an install or upgrade without touching host state. */

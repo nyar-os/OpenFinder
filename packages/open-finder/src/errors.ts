@@ -45,6 +45,7 @@ export class AppError extends Error {
 
     /** Exit code derived from the structured payload. */
     get exitCode(): number {
+        if (this.code === 'invalid_argument') return EXIT.USAGE;
         return this.capability ? EXIT.CAPABILITY : EXIT.FAILURE;
     }
 
