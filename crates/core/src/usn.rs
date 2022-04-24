@@ -11,6 +11,8 @@ use crate::{
 const FSCTL_QUERY_USN_JOURNAL: u32 = 0x0009_00F4;
 /// `FSCTL_READ_USN_JOURNAL`.
 const FSCTL_READ_USN_JOURNAL: u32 = 0x0009_00BB;
+/// `FSCTL_ENUM_USN_DATA`.
+const FSCTL_ENUM_USN_DATA: u32 = 0x0009_00B3;
 
 /// Journal state reported by `FSCTL_QUERY_USN_JOURNAL`.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -67,7 +69,9 @@ impl UsnRecord {
     }
 }
 
-/// Parse the output buffer of `FSCTL_READ_USN_JOURNAL`.
+/// Parse a change-journal page: an eight-byte next-start cursor followed by
+/// `USN_RECORD_V2` entries. `FSCTL_READ_USN_JOURNAL` and `FSCTL_ENUM_USN_DATA`
+/// share this output shape.
 ///
 /// Returns the next start cursor and the decoded records.
 pub fn parse_read_output(bytes: &[u8]) -> Result<(u64, Vec<UsnRecord>)> {
@@ -96,13 +100,15 @@ pub fn parse_read_output(bytes: &[u8]) -> Result<(u64, Vec<UsnRecord>)> {
 fn parse_record(bytes: &[u8], offset: usize, length: usize) -> Result<UsnRecord> {
     let file_reference = read_u64(bytes, offset + 8);
     let parent_reference = read_u64(bytes, offset + 16);
-    let name_len = read_u16(bytes, offset + 56) as usize;
+    // `FileNameLength` counts bytes, not characters.
+    let name_bytes = read_u16(bytes, offset + 56) as usize;
     let name_offset = read_u16(bytes, offset + 58) as usize;
-    if name_len == 0 || offset + name_offset + name_len * 2 > length + offset {
+    let name_chars = name_bytes / 2;
+    if name_chars == 0 || offset + name_offset + name_bytes > offset + length {
         return Err(Error::message("USN record name is out of bounds"));
     }
-    let mut units = Vec::with_capacity(name_len);
-    for index in 0..name_len {
+    let mut units = Vec::with_capacity(name_chars);
+    for index in 0..name_chars {
         let position = offset + name_offset + index * 2;
         units.push(u16::from_le_bytes([bytes[position], bytes[position + 1]]));
     }
@@ -131,16 +137,41 @@ pub fn query(volume: &mut Volume) -> Result<JournalState> {
 }
 
 /// Read one batch of USN records starting at `start_usn`.
-pub fn read(volume: &mut Volume, journal: &JournalState, start_usn: u64, wait_bytes: u32) -> Result<(u64, Vec<UsnRecord>)> {
+///
+/// The call never blocks: `BytesToWaitFor` stays zero and the timeout is zero.
+/// `chunk_bytes` is the payload size; the output buffer carries eight extra
+/// bytes for the next start cursor.
+pub fn read(volume: &mut Volume, journal: &JournalState, start_usn: u64, chunk_bytes: u32) -> Result<(u64, Vec<UsnRecord>)> {
     let mut input = [0u8; 32];
     input[0..8].copy_from_slice(&start_usn.to_le_bytes());
+    // ReasonMask: every change. ReturnOnlyOnClose: every record, not only closes.
     input[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
-    input[12..16].copy_from_slice(&1u32.to_le_bytes());
+    input[12..16].copy_from_slice(&0u32.to_le_bytes());
     input[16..20].copy_from_slice(&0u32.to_le_bytes());
-    input[20..24].copy_from_slice(&wait_bytes.to_le_bytes());
+    input[20..24].copy_from_slice(&0u32.to_le_bytes());
     input[24..32].copy_from_slice(&journal.id.to_le_bytes());
-    let output = volume.ioctl(FSCTL_READ_USN_JOURNAL, &input, wait_bytes)?;
+    let output = volume.ioctl(FSCTL_READ_USN_JOURNAL, &input, chunk_bytes.saturating_add(8))?;
     parse_read_output(&output)
+}
+
+/// Enumerate records whose USN falls in `[low_usn, high_usn)`.
+///
+/// This is the documented alternative to `FSCTL_READ_USN_JOURNAL` for listing
+/// changes between two USNs. The cursor is a file reference number rather than
+/// a USN, so callers resume with the returned FRN while keeping the same USN
+/// window. Deleted files are no longer in the MFT and therefore do not appear.
+///
+/// Returns `None` once the enumeration is exhausted.
+pub fn enumerate(volume: &mut Volume, low_usn: u64, high_usn: u64, start_frn: u64, chunk_bytes: u32) -> Result<Option<(u64, Vec<UsnRecord>)>> {
+    let mut input = [0u8; 24];
+    input[0..8].copy_from_slice(&start_frn.to_le_bytes());
+    input[8..16].copy_from_slice(&low_usn.to_le_bytes());
+    input[16..24].copy_from_slice(&high_usn.to_le_bytes());
+    let Some(output) = volume.ioctl_optional(FSCTL_ENUM_USN_DATA, &input, chunk_bytes)?
+    else {
+        return Ok(None);
+    };
+    parse_read_output(&output).map(Some)
 }
 
 fn filetime_to_unix_ms(value: u64) -> u64 {
@@ -169,8 +200,8 @@ mod tests {
     use super::*;
 
     fn fixture(usn: u64, name: &str, reason: u32) -> Vec<u8> {
-        let name_len = name.len();
-        let length = 60 + name_len * 2;
+        let name_bytes = name.len() * 2;
+        let length = 60 + name_bytes;
         let mut bytes = vec![0u8; length];
         bytes[0..4].copy_from_slice(&(length as u32).to_le_bytes());
         bytes[4..6].copy_from_slice(&2u16.to_le_bytes());
@@ -180,7 +211,7 @@ mod tests {
         bytes[32..40].copy_from_slice(&421_243_200_000_000_000u64.to_le_bytes());
         bytes[40..44].copy_from_slice(&reason.to_le_bytes());
         bytes[52..56].copy_from_slice(&0u32.to_le_bytes());
-        bytes[56..58].copy_from_slice(&(name_len as u16).to_le_bytes());
+        bytes[56..58].copy_from_slice(&(name_bytes as u16).to_le_bytes());
         bytes[58..60].copy_from_slice(&60u16.to_le_bytes());
         for (index, byte) in name.as_bytes().iter().enumerate() {
             bytes[60 + index * 2..60 + index * 2 + 2].copy_from_slice(&(*byte as u16).to_le_bytes());

@@ -99,13 +99,13 @@ impl<R: VolumeReader> MftReader<R> {
         let mut written = 0usize;
         while written < out.len() {
             let vcn = position / cluster;
-            let intra = position % cluster;
             let Some(run) = self.runs.iter().find(|run| vcn >= run.vcn && vcn < run.vcn + run.clusters)
             else {
                 return Err(Error::message(format!("MFT data run does not cover virtual cluster {vcn}")));
             };
-            let physical = run.lcn * cluster + intra;
-            let available = ((run.vcn + run.clusters) * cluster - position) as usize;
+            let within = position - run.vcn * cluster;
+            let physical = run.lcn * cluster + within;
+            let available = (run.clusters * cluster - within) as usize;
             let take = available.min(out.len() - written);
             self.reader.read_at(physical, &mut out[written..written + take])?;
             written += take;
@@ -140,6 +140,59 @@ mod tests {
         let scanned = reader.scan(Some(3), |entry| names.push(entry.name.clone())).unwrap();
         assert_eq!(scanned, 3);
         assert_eq!(names, vec!["report.txt".to_string()]);
+    }
+
+    #[test]
+    fn read_record_maps_virtual_clusters_across_runs() {
+        let mut reader = MftReader::bootstrap(fixture_split_volume()).unwrap();
+        assert_eq!(reader.record_count(), 12);
+        let entry = reader.read_record(4).unwrap().unwrap();
+        assert_eq!(entry.name, "second.txt");
+        assert_eq!(entry.frn, 4);
+        assert!(reader.read_record(2).unwrap().is_none());
+    }
+
+    /// Two MFT runs: clusters `4` and `9..11`, so record 4 lives in the second run.
+    fn fixture_split_volume() -> Vec<u8> {
+        let first = MFT_LCN * CLUSTER;
+        let second = 9 * CLUSTER;
+        let mut bytes = vec![0u8; second + 2 * CLUSTER];
+        write_boot(&mut bytes);
+        let data_len = 3 * CLUSTER;
+        let run_bytes = [0x11, 0x01, 0x04, 0x11, 0x02, 0x05, 0x00];
+        let record_zero = record_zero_with_runs(&run_bytes, data_len);
+        bytes[first..first + 1024].copy_from_slice(&record_zero);
+
+        let mut named = record_header();
+        write_resident(&mut named, 0x38, 0x30, 86, |value| {
+            value[0..8].copy_from_slice(&5u64.to_le_bytes());
+            value[48..56].copy_from_slice(&321u64.to_le_bytes());
+            value[64] = 10;
+            value[65] = 1;
+            for (index, byte) in b"second.txt".iter().enumerate() {
+                value[66 + index * 2..66 + index * 2 + 2].copy_from_slice(&(*byte as u16).to_le_bytes());
+            }
+        });
+        bytes[second..second + 1024].copy_from_slice(&named);
+        bytes
+    }
+
+    fn record_zero_with_runs(run_bytes: &[u8], data_len: usize) -> Vec<u8> {
+        let mut record_zero = record_header();
+        let offset = 0x38;
+        let attr_len = 0x40 + run_bytes.len();
+        record_zero[offset..offset + 4].copy_from_slice(&0x80u32.to_le_bytes());
+        record_zero[offset + 4..offset + 8].copy_from_slice(&(attr_len as u32).to_le_bytes());
+        record_zero[offset + 8] = 1;
+        record_zero[offset + 0x10..offset + 0x18].copy_from_slice(&0u64.to_le_bytes());
+        record_zero[offset + 0x18..offset + 0x20].copy_from_slice(&(data_len as u64).to_le_bytes());
+        record_zero[offset + 0x20..offset + 0x22].copy_from_slice(&0x40u16.to_le_bytes());
+        record_zero[offset + 0x28..offset + 0x30].copy_from_slice(&(data_len as u64).to_le_bytes());
+        record_zero[offset + 0x30..offset + 0x38].copy_from_slice(&(data_len as u64).to_le_bytes());
+        record_zero[offset + 0x40..offset + 0x40 + run_bytes.len()].copy_from_slice(run_bytes);
+        record_zero[0x18..0x1C].copy_from_slice(&((offset + attr_len + 4) as u32).to_le_bytes());
+        record_zero[offset + attr_len..offset + attr_len + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        record_zero
     }
 
     fn fixture_volume() -> Vec<u8> {

@@ -272,6 +272,11 @@ pub struct UpdateReport {
     pub cursor: u64,
     /// `true` when the journal no longer covers the saved cursor.
     pub needs_rescan: bool,
+    /// Change source: `usn-record` for `FSCTL_READ_USN_JOURNAL` or `usn-enum`
+    /// for the `FSCTL_ENUM_USN_DATA` fallback.
+    pub strategy: String,
+    /// Whether deleted files are observable through the change source.
+    pub deletions_tracked: bool,
     /// Number of journal batches read.
     pub batches: u64,
     /// Elapsed milliseconds.
@@ -345,6 +350,13 @@ pub fn build_index(options: &BuildOptions) -> Result<BuildReport> {
 }
 
 /// Apply USN journal changes to an existing index.
+///
+/// The primary source is `FSCTL_READ_USN_JOURNAL`, which reports every change
+/// including deletions. When the volume rejects that control — some hosts
+/// return `ERROR_INVALID_USER_BUFFER` regardless of request shape — the caller
+/// falls back to `FSCTL_ENUM_USN_DATA` over the same USN window. That fallback
+/// is reported as `strategy: usn-enum` with `deletionsTracked: false`, because
+/// deleted records no longer exist in the MFT.
 pub fn update_index(index_dir: &Path, max_records: u64) -> Result<UpdateReport> {
     let started = SystemTime::now();
     let mut index = load_index(index_dir)?;
@@ -353,43 +365,73 @@ pub fn update_index(index_dir: &Path, max_records: u64) -> Result<UpdateReport> 
         .map_err(|error| Error::capability("index-update", crate::error::CapabilityState::DependencyBlocked, error.to_string()))?;
     let cursor = index.meta.cursor;
     if cursor == 0 || cursor < journal.first_usn {
-        return Ok(UpdateReport { applied: 0, reloaded: 0, removed: 0, cursor, needs_rescan: true, batches: 0, took_ms: elapsed_ms(started) });
+        return Ok(UpdateReport {
+            applied: 0,
+            reloaded: 0,
+            removed: 0,
+            cursor,
+            needs_rescan: true,
+            strategy: "usn-record".to_string(),
+            deletions_tracked: true,
+            batches: 0,
+            took_ms: elapsed_ms(started),
+        });
     }
     let mut reader = MftReader::bootstrap(handle)?;
-    let mut report = UpdateReport { applied: 0, reloaded: 0, removed: 0, cursor, needs_rescan: false, batches: 0, took_ms: 0 };
+    let mut report = UpdateReport {
+        applied: 0,
+        reloaded: 0,
+        removed: 0,
+        cursor,
+        needs_rescan: false,
+        strategy: "usn-record".to_string(),
+        deletions_tracked: true,
+        batches: 0,
+        took_ms: 0,
+    };
+    const CHUNK: u32 = 65_536;
     let mut position = cursor;
-    while report.applied < max_records {
-        let wait_bytes = 65_536u32;
-        let (next, records) = usn::read(reader.volume_mut(), &journal, position, wait_bytes)?;
-        report.batches += 1;
-        if records.is_empty() {
-            if next > position {
+    match usn::read(reader.volume_mut(), &journal, position, CHUNK) {
+        Ok((next, records)) => {
+            apply_batch(&mut index, &mut reader, &records, &mut report, max_records, false)?;
+            report.batches += 1;
+            if next > position && !records.is_empty() {
                 position = next;
             }
-            break;
-        }
-        for record in records {
-            if report.applied >= max_records {
-                break;
-            }
-            report.applied += 1;
-            if record.is_delete() {
-                report.removed += index.remove_subtree(record.frn);
-            }
-            else if record.requires_reload() {
-                match reader.read_record(record.frn)? {
-                    Some(entry) => {
-                        report.reloaded += 1;
-                        index.entries.insert(entry.frn, entry);
+            while report.applied < max_records {
+                let (next, records) = usn::read(reader.volume_mut(), &journal, position, CHUNK)?;
+                report.batches += 1;
+                if records.is_empty() {
+                    if next > position {
+                        position = next;
                     }
-                    None => report.removed += index.remove_subtree(record.frn),
+                    break;
                 }
+                apply_batch(&mut index, &mut reader, &records, &mut report, max_records, false)?;
+                if next <= position {
+                    break;
+                }
+                position = next;
             }
         }
-        if next <= position {
-            break;
+        Err(_) => {
+            report.strategy = "usn-enum".to_string();
+            report.deletions_tracked = false;
+            // The MFT enumeration is keyed by file reference number, so the whole
+            // window is consumed before the cursor advances. Stopping early would
+            // silently drop changes, and `max_records` therefore only bounds the
+            // journal-record path.
+            let mut start_frn = 0u64;
+            while let Some((next_frn, records)) = usn::enumerate(reader.volume_mut(), cursor, journal.next_usn, start_frn, CHUNK)? {
+                report.batches += 1;
+                if records.is_empty() || next_frn <= start_frn {
+                    break;
+                }
+                apply_batch(&mut index, &mut reader, &records, &mut report, u64::MAX, true)?;
+                start_frn = next_frn;
+            }
+            position = journal.next_usn;
         }
-        position = next;
     }
     report.cursor = position;
     index.meta.cursor = position;
@@ -399,6 +441,40 @@ pub fn update_index(index_dir: &Path, max_records: u64) -> Result<UpdateReport> 
     index.save(index_dir)?;
     report.took_ms = elapsed_ms(started);
     Ok(report)
+}
+
+/// Apply one page of journal records to the index, honouring `max_records`.
+///
+/// `reload_all` refreshes every listed record regardless of its reason flags.
+/// The MFT enumeration path needs that: it returns one current-state record per
+/// file, so the reason mask may only carry a trailing flag such as a close.
+fn apply_batch(
+    index: &mut Index,
+    reader: &mut MftReader<Volume>,
+    records: &[usn::UsnRecord],
+    report: &mut UpdateReport,
+    max_records: u64,
+    reload_all: bool,
+) -> Result<()> {
+    for record in records {
+        if report.applied >= max_records {
+            break;
+        }
+        report.applied += 1;
+        if record.is_delete() {
+            report.removed += index.remove_subtree(record.frn);
+        }
+        else if reload_all || record.requires_reload() {
+            match reader.read_record(record.frn)? {
+                Some(entry) => {
+                    report.reloaded += 1;
+                    index.entries.insert(entry.frn, entry);
+                }
+                None => report.removed += index.remove_subtree(record.frn),
+            }
+        }
+    }
+    Ok(())
 }
 
 fn replace_file(from: &Path, to: &Path) -> Result<()> {

@@ -17,6 +17,8 @@ const ATTR_FILE_NAME: u32 = 0x30;
 const ATTR_STANDARD_INFORMATION: u32 = 0x10;
 const ATTR_DATA: u32 = 0x80;
 const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+/// File records carry a 48-bit record number plus a 16-bit sequence number.
+const FRN_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 
 /// Parsed NTFS boot sector fields needed for raw indexing.
 #[derive(Debug, Clone, Copy)]
@@ -239,7 +241,7 @@ fn parse_file_name(attribute: &[u8]) -> Option<FileNameAttribute> {
         return None;
     }
     Some(FileNameAttribute {
-        parent_frn: read_u64(value, 0),
+        parent_frn: read_u64(value, 0) & FRN_MASK,
         created_ms: filetime_to_unix_ms(read_u64(value, 8)),
         modified_ms: filetime_to_unix_ms(read_u64(value, 16)),
         accessed_ms: filetime_to_unix_ms(read_u64(value, 32)),
@@ -409,7 +411,8 @@ mod tests {
         let name_value = offset + 24;
         record[offset + 0x14..offset + 0x16].copy_from_slice(&24u16.to_le_bytes());
         record[offset + 0x10..offset + 0x14].copy_from_slice(&84u32.to_le_bytes());
-        record[name_value..name_value + 8].copy_from_slice(&5u64.to_le_bytes());
+        // Parent reference: record 5 with sequence 7 packed into the high bits.
+        record[name_value..name_value + 8].copy_from_slice(&(5u64 | (7u64 << 48)).to_le_bytes());
         record[name_value + 8..name_value + 16].copy_from_slice(&421_243_200_000_000_000u64.to_le_bytes());
         record[name_value + 16..name_value + 24].copy_from_slice(&421_243_200_000_000_000u64.to_le_bytes());
         record[name_value + 32..name_value + 40].copy_from_slice(&421_243_200_000_000_000u64.to_le_bytes());

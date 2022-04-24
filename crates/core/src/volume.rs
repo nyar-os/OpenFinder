@@ -61,6 +61,23 @@ impl Volume {
             ))
         }
     }
+
+    /// Issue a control code that signals end-of-data with `ERROR_HANDLE_EOF`.
+    pub fn ioctl_optional(&mut self, code: u32, input: &[u8], output_len: u32) -> Result<Option<Vec<u8>>> {
+        #[cfg(windows)]
+        {
+            self.inner.ioctl_optional(code, input, output_len)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (code, input, output_len);
+            Err(crate::error::Error::capability(
+                "index-update",
+                crate::error::CapabilityState::UnsupportedPlatform,
+                "volume control codes are only implemented on Windows",
+            ))
+        }
+    }
 }
 
 impl VolumeReader for Volume {
@@ -98,6 +115,8 @@ mod win {
     const FILE_ATTRIBUTE_NORMAL: u32 = 0x0000_0080;
     const FILE_BEGIN: u32 = 0;
     const INVALID_HANDLE_VALUE: Handle = -1;
+    /// `ERROR_HANDLE_EOF`: the file-system control ran out of data.
+    const ERROR_HANDLE_EOF: u32 = 38;
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -163,7 +182,8 @@ mod win {
             // SAFETY: the handle is valid for the lifetime of `self` and the position pointer is a valid stack slot.
             let moved = unsafe { SetFilePointerEx(self.handle, distance, std::ptr::null_mut(), FILE_BEGIN) };
             if moved == 0 {
-                return Err(self.last_error("seek"));
+                // SAFETY: GetLastError has no preconditions.
+                return Err(self.error_for("seek", unsafe { GetLastError() }));
             }
             let mut written = 0usize;
             while written < buffer.len() {
@@ -172,7 +192,8 @@ mod win {
                 // SAFETY: the destination slice covers `remaining` bytes and `read` is a valid out parameter.
                 let ok = unsafe { ReadFile(self.handle, buffer[written..].as_mut_ptr().cast(), remaining, &mut read, std::ptr::null_mut()) };
                 if ok == 0 {
-                    return Err(self.last_error("read"));
+                    // SAFETY: GetLastError has no preconditions.
+                    return Err(self.error_for("read", unsafe { GetLastError() }));
                 }
                 if read == 0 {
                     return Err(Error::message("volume read returned no bytes"));
@@ -184,6 +205,19 @@ mod win {
 
         /// Issue a control code against the volume handle.
         pub fn ioctl(&mut self, code: u32, input: &[u8], output_len: u32) -> Result<Vec<u8>> {
+            self.ioctl_code(code, input, output_len).map_err(|error_code| self.error_for("control", error_code))
+        }
+
+        /// Issue a control code that reports `ERROR_HANDLE_EOF` when it runs out of data.
+        pub fn ioctl_optional(&mut self, code: u32, input: &[u8], output_len: u32) -> Result<Option<Vec<u8>>> {
+            match self.ioctl_code(code, input, output_len) {
+                Ok(output) => Ok(Some(output)),
+                Err(ERROR_HANDLE_EOF) => Ok(None),
+                Err(code) => Err(self.error_for("control", code)),
+            }
+        }
+
+        fn ioctl_code(&mut self, code: u32, input: &[u8], output_len: u32) -> std::result::Result<Vec<u8>, u32> {
             let mut output = vec![0u8; output_len as usize];
             let mut returned = 0u32;
             // SAFETY: input and output buffers are valid for their stated lengths for the duration of the call.
@@ -200,15 +234,14 @@ mod win {
                 )
             };
             if ok == 0 {
-                return Err(self.last_error("control"));
+                // SAFETY: GetLastError has no preconditions.
+                return Err(unsafe { GetLastError() });
             }
             output.truncate(returned as usize);
             Ok(output)
         }
 
-        fn last_error(&self, action: &str) -> Error {
-            // SAFETY: GetLastError has no preconditions.
-            let code = unsafe { GetLastError() };
+        fn error_for(&self, action: &str, code: u32) -> Error {
             let mut error = Error::message(format!("volume {action} failed with Win32 error {code}"));
             if code == 5 {
                 error = Error::capability(
