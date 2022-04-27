@@ -68,9 +68,19 @@ impl IpcHandler for HostIpc {
                 }
             }
             "searchWalk" => {
-                let Ok(options) = serde_json::from_value::<WalkOptions>(request.clone())
+                let root = request.get("root").and_then(Value::as_str).unwrap_or_default().to_string();
+                if root.is_empty() {
+                    return IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": "root is required" })));
+                }
+                let Ok(spec) = serde_json::from_value::<QuerySpec>(request.clone())
                 else {
-                    return IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": "invalid walk options" })));
+                    return IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": "invalid query spec" })));
+                };
+                let options = WalkOptions {
+                    root: PathBuf::from(root),
+                    max_depth: request.get("maxDepth").and_then(Value::as_u64).map_or(8, |value| value as u32),
+                    max_entries: request.get("maxEntries").and_then(Value::as_u64).unwrap_or(100_000),
+                    spec,
                 };
                 match audit::run(capability_ids::PORTABLE_WALK, Mode::Execute, Value::Null, move || {
                     let page = walk(&options)?;

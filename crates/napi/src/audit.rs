@@ -135,11 +135,11 @@ mod tests {
     #[test]
     fn success_is_recorded_with_targets() {
         let (auditor, dir) = test_auditor();
-        run_with(&auditor, "inspect", Mode::DryRun, serde_json::json!({ "root": "C:/tmp" }), || Ok((42, Summary::new(3, "three entries"))))
+        run_with(&auditor, "search", Mode::DryRun, serde_json::json!({ "root": "C:/tmp" }), || Ok((42, Summary::new(3, "three entries"))))
             .unwrap();
         let entries = auditor.query(&Query::default()).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].capability, "inspect");
+        assert_eq!(entries[0].capability, "search");
         assert_eq!(entries[0].mode, Mode::DryRun);
         assert_eq!(entries[0].outcome, Outcome::Success);
         assert_eq!(entries[0].targets.count, 3);
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn credentials_in_params_are_redacted_before_write() {
         let (auditor, dir) = test_auditor();
-        run_with(&auditor, "inspect", Mode::DryRun, serde_json::json!({ "token": "SECRET", "root": "C:/tmp" }), || {
+        run_with(&auditor, "search", Mode::DryRun, serde_json::json!({ "token": "SECRET", "root": "C:/tmp" }), || {
             Ok(((), Summary::new(0, "none")))
         })
         .unwrap();
