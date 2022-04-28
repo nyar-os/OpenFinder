@@ -11,10 +11,70 @@
                     </p>
                 </header>
 
-                <Card :title="capabilitiesTitle" :description="capabilitiesDesc">
+                <Card :title="searchTitle" :description="searchDesc">
+                    <div class="app-grid">
+                        <Field
+                            :label="patternLabel"
+                            :description="patternDesc"
+                            controlId="search-pattern"
+                            descriptionId="search-pattern-desc"
+                            errorId="search-pattern-err"
+                            describedBy="search-pattern-desc"
+                            :value="pattern"
+                            :placeholder="patternPlaceholder"
+                            @input="onPatternInput"
+                        />
+                        <Field
+                            :label="pathFilterLabel"
+                            :description="pathFilterDesc"
+                            controlId="search-path"
+                            descriptionId="search-path-desc"
+                            errorId="search-path-err"
+                            describedBy="search-path-desc"
+                            :value="pathFilter"
+                            :placeholder="pathFilterPlaceholder"
+                            @input="onPathFilterInput"
+                        />
+                    </div>
+                    <div class="app-grid">
+                        <label class="app-select">
+                            <span>{{ kindLabel }}</span>
+                            <select :value="kind" @change="onKindChange">
+                                <option value="">
+                                    {{ kindAny }}
+                                </option>
+                                <option value="file">
+                                    {{ kindFile }}
+                                </option>
+                                <option value="dir">
+                                    {{ kindDir }}
+                                </option>
+                            </select>
+                        </label>
+                        <label class="app-select">
+                            <span>{{ sortLabel }}</span>
+                            <select :value="sort" @change="onSortChange">
+                                <option value="name">
+                                    {{ sortName }}
+                                </option>
+                                <option value="path">
+                                    {{ sortPath }}
+                                </option>
+                                <option value="size">
+                                    {{ sortSize }}
+                                </option>
+                                <option value="modified">
+                                    {{ sortModified }}
+                                </option>
+                            </select>
+                        </label>
+                    </div>
                     <div class="app-actions">
-                        <Button type="button" :loading="loadingCapabilities" :disabled="loadingCapabilities" @click="loadCapabilities">
-                            {{ capabilitiesLabel }}
+                        <Button type="button" :loading="searching" :disabled="searching" @click="runSearch">
+                            {{ searchLabel }}
+                        </Button>
+                        <Button type="button" variant="secondary" :loading="searching" :disabled="searching" @click="runWalk">
+                            {{ walkLabel }}
                         </Button>
                         <Button type="button" variant="secondary" @click="closeWindow">
                             {{ closeLabel }}
@@ -22,28 +82,15 @@
                     </div>
                     <Alert v-if="error" tone="danger" roleName="alert" :title="errorTitle" :description="error" />
                     <Alert v-else-if="status" tone="info" roleName="status" :title="statusTitle" :description="status" />
-                    <Empty v-if="!capabilityRows.length && !loadingCapabilities" :title="emptyTitle" :description="emptyDesc" />
-                    <Table v-else :columns="capabilityColumns" :rows="capabilityRows" :hasRowAction="false" />
-                </Card>
-
-                <Card :title="inspectTitle" :description="inspectDesc">
-                    <Field
-                        :label="rootLabel"
-                        :description="rootDesc"
-                        controlId="app-root"
-                        descriptionId="app-root-desc"
-                        errorId="app-root-err"
-                        describedBy="app-root-desc"
-                        :value="root"
-                        :placeholder="rootPlaceholder"
-                        @input="onRootInput"
-                    />
-                    <div class="app-actions">
-                        <Button type="button" :loading="inspecting" :disabled="inspecting" @click="runInspect">
-                            {{ inspectLabel }}
-                        </Button>
-                    </div>
                     <div class="app-stats">
+                        <div class="app-stat">
+                            <div class="app-stat__label">
+                                {{ modeLabel }}
+                            </div>
+                            <div class="app-stat__value">
+                                {{ modeText }}
+                            </div>
+                        </div>
                         <div class="app-stat">
                             <div class="app-stat__label">
                                 {{ totalLabel }}
@@ -54,28 +101,25 @@
                         </div>
                         <div class="app-stat">
                             <div class="app-stat__label">
-                                {{ countLabel }}
+                                {{ pageLabel }}
                             </div>
                             <div class="app-stat__value">
-                                {{ countText }}
+                                {{ pageText }}
                             </div>
                         </div>
                     </div>
-                    <Empty v-if="!entryRows.length && !inspecting" :title="emptyEntriesTitle" :description="emptyEntriesDesc" />
-                    <Table v-else :columns="entryColumns" :rows="entryRows" :hasRowAction="false" />
+                    <Empty v-if="!hitRows.length && !searching" :title="emptyHitsTitle" :description="emptyHitsDesc" />
+                    <Table v-else :columns="hitColumns" :rows="hitRows" :hasRowAction="false" />
                 </Card>
 
-                <Card :title="installTitle" :description="installDesc">
+                <Card :title="capabilitiesTitle" :description="capabilitiesDesc">
                     <div class="app-actions">
-                        <Button type="button" :loading="planning" :disabled="planning" @click="planInstall">
-                            {{ planInstallLabel }}
-                        </Button>
-                        <Button type="button" variant="secondary" :loading="planning" :disabled="planning" @click="planUninstall">
-                            {{ planUninstallLabel }}
+                        <Button type="button" :loading="loadingCapabilities" :disabled="loadingCapabilities" @click="loadCapabilities">
+                            {{ capabilitiesLabel }}
                         </Button>
                     </div>
-                    <Empty v-if="!planRows.length && !planning" :title="emptyPlanTitle" :description="emptyPlanDesc" />
-                    <Table v-else :columns="planColumns" :rows="planRows" :hasRowAction="false" />
+                    <Empty v-if="!capabilityRows.length && !loadingCapabilities" :title="emptyTitle" :description="emptyDesc" />
+                    <Table v-else :columns="capabilityColumns" :rows="capabilityRows" :hasRowAction="false" />
                 </Card>
             </div>
         </AppShell>
@@ -101,6 +145,25 @@
     margin: 0;
     color: var(--vmz-text-steel, var(--vmz-text-muted, #8b93a7));
 }
+.app-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--vmz-space-3, 0.75rem);
+    margin-bottom: var(--vmz-space-3, 0.75rem);
+}
+.app-select {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+}
+.app-select select {
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--vmz-line-default, #e5e6eb);
+    border-radius: var(--vmz-radius-md, 8px);
+    background: var(--vmz-surface-paper, #fff);
+    color: inherit;
+}
 .app-actions {
     display: flex;
     flex-wrap: wrap;
@@ -109,9 +172,9 @@
 }
 .app-stats {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--vmz-space-3, 0.75rem);
-    margin-bottom: var(--vmz-space-4, 1rem);
+    margin: var(--vmz-space-4, 1rem) 0;
 }
 .app-stat {
     padding: var(--vmz-space-3, 0.75rem);
@@ -126,9 +189,10 @@
 .app-stat__value {
     margin-top: 0.25rem;
     font-variant-numeric: tabular-nums;
-    font-size: 1.1rem;
+    font-size: 1.05rem;
 }
 @media (max-width: 720px) {
+    .app-grid,
     .app-stats {
         grid-template-columns: 1fr;
     }
@@ -137,70 +201,78 @@
 
 <script client>
 /**
- * Application page.
+ * Search page.
  *
- * The page only renders results. Scanning, install planning, and auditing all
+ * The page only renders results. Indexing, USN updates, matching, and auditing
  * live in the Rust `core` and `napi` crates. Requests go through the WebView
  * bridge implemented by `wae::webview`.
  */
 export default class IndexPage {
     title = "OpenFinder";
-    lead = "Open-X application skeleton. Capabilities are served by the native core.";
-    navItems = [{ id: "home", title: "Home", href: "/" }];
+    lead = "NTFS index search over $MFT records and the USN journal. Every query runs through the native core.";
+    navItems = [{ id: "home", title: "Search", href: "/" }];
+
+    searchTitle = "Search";
+    searchDesc = "Glob uses `*` and `?`. Filters are applied by the native index, never by the page.";
+    patternLabel = "Pattern";
+    patternDesc = "File name glob, or a regular expression when the core receives `regex`.";
+    patternPlaceholder = "*.dll";
+    pathFilterLabel = "Path filter";
+    pathFilterDesc = "Case-insensitive substring matched against the full path.";
+    pathFilterPlaceholder = "\\Windows\\System32";
+    kindLabel = "Kind";
+    kindAny = "Any";
+    kindFile = "Files";
+    kindDir = "Directories";
+    sortLabel = "Sort";
+    sortName = "Name";
+    sortPath = "Path";
+    sortSize = "Size";
+    sortModified = "Modified";
+    searchLabel = "Search index";
+    walkLabel = "Walk folder";
+    closeLabel = "Close";
+
+    modeLabel = "Mode";
+    totalLabel = "Total matches";
+    pageLabel = "Page";
+    modeText = "—";
+    totalText = "—";
+    pageText = "—";
+
+    errorTitle = "Request failed";
+    statusTitle = "Status";
+    emptyHitsTitle = "No results yet";
+    emptyHitsDesc = "Enter a pattern and search, or walk a folder explicitly.";
+    status = "";
 
     capabilitiesTitle = "Capabilities";
     capabilitiesDesc = "Availability reported by crates/core. Unsupported or unfinished capabilities fail with structured codes.";
     capabilitiesLabel = "Refresh capabilities";
-    closeLabel = "Close";
-    errorTitle = "Request failed";
-    statusTitle = "Status";
     emptyTitle = "No capability report yet";
     emptyDesc = "Refresh to read the capability table.";
-    status = "";
 
-    inspectTitle = "Inspect";
-    inspectDesc = "Read-only directory inspection. Limit entries to keep the report bounded.";
-    rootLabel = "Root directory";
-    rootDesc = "Absolute path to inspect. Leave empty to use the system temp directory.";
-    rootPlaceholder = "Empty = system temp";
-    inspectLabel = "Inspect";
-    totalLabel = "Total bytes";
-    countLabel = "Entries";
-    emptyEntriesTitle = "No inspection yet";
-    emptyEntriesDesc = "Run an inspection to populate this table.";
-
-    installTitle = "Host install";
-    installDesc = "Plan the shortcut and configuration layout. Applying is an application-owned capability.";
-    planInstallLabel = "Plan install";
-    planUninstallLabel = "Plan uninstall";
-    emptyPlanTitle = "No plan yet";
-    emptyPlanDesc = "Plan an install or uninstall to preview host actions.";
-
+    pattern = "*.dll";
+    pathFilter = "";
+    kind = "";
+    sort = "name";
+    searching = false;
     loadingCapabilities = false;
-    inspecting = false;
-    planning = false;
     error = "";
-    root = "";
-    totalText = "—";
-    countText = "—";
+    hitColumns = [
+        { id: "kind", title: "Kind" },
+        { id: "size", title: "Size", align: "right" },
+        { id: "modified", title: "Modified" },
+        { id: "path", title: "Path" },
+        { id: "frn", title: "FRN", align: "right" },
+    ];
+    hitRows = [];
     capabilityColumns = [
         { id: "id", title: "Capability" },
         { id: "state", title: "State" },
         { id: "detail", title: "Detail" },
     ];
     capabilityRows = [];
-    entryColumns = [
-        { id: "kind", title: "Kind" },
-        { id: "bytes", title: "Size", align: "right" },
-        { id: "path", title: "Path" },
-    ];
-    entryRows = [];
-    planColumns = [
-        { id: "kind", title: "Action" },
-        { id: "target", title: "Target" },
-        { id: "detail", title: "Detail" },
-    ];
-    planRows = [];
 
     onMount() {
         this.installHostBridge();
@@ -250,16 +322,33 @@ export default class IndexPage {
     handleReply(data) {
         if (!data || typeof data !== "object") return;
         if (data.ok !== true) {
-            this.pending = "";
+            this.searching = false;
             this.loadingCapabilities = false;
-            this.inspecting = false;
-            this.planning = false;
             const failure = data.error;
             this.error = typeof failure === "string" ? failure : String((failure && failure.message) || "unknown error");
             this.status = "";
             return;
         }
         const value = data.data || {};
+        if (Array.isArray(value.hits)) {
+            this.searching = false;
+            this.error = "";
+            this.status = `Query complete in ${Number(value.tookMs) || 0} ms.`;
+            this.modeText = `${value.mode || "index"} (indexed: ${value.indexed ? "yes" : "no"})`;
+            this.totalText = String(Number(value.total) || 0);
+            this.pageText = `${Number(value.offset) || 0}..${(Number(value.offset) || 0) + value.hits.length}${value.hasMore ? " +" : ""}`;
+            this.hitRows = value.hits.map((hit, index) => ({
+                id: String(index),
+                cells: [
+                    String(hit.isDir ? "dir" : "file"),
+                    this.formatBytes(Number(hit.size) || 0),
+                    this.formatTime(Number(hit.modifiedMs) || 0),
+                    String(hit.path || ""),
+                    String(hit.frn ?? "—"),
+                ],
+            }));
+            return;
+        }
         if (Array.isArray(value.items)) {
             this.loadingCapabilities = false;
             this.error = "";
@@ -268,62 +357,57 @@ export default class IndexPage {
                 id: String(index),
                 cells: [String(item.id || ""), String(item.state || "supported"), String(item.detail || "")],
             }));
-            return;
         }
-        if (Array.isArray(value.entries)) {
-            this.inspecting = false;
-            this.error = "";
-            this.status = "Inspection complete.";
-            this.totalText = this.formatBytes(Number(value.totalBytes) || 0);
-            this.countText = `${Number(value.entryCount) || 0}${value.truncated ? " (truncated)" : ""}`;
-            this.entryRows = value.entries.map((entry, index) => ({
-                id: String(index),
-                cells: [String(entry.kind || ""), this.formatBytes(Number(entry.bytes) || 0), String(entry.path || "")],
-            }));
-            return;
-        }
-        if (Array.isArray(value.actions)) {
-            this.planning = false;
-            this.error = "";
-            this.status = value.configExists === undefined ? "Install plan ready." : "Uninstall plan ready.";
-            this.planRows = value.actions.map((action, index) => ({
-                id: String(index),
-                cells: [String(action.kind || ""), String(action.target || ""), String(action.detail || "")],
-            }));
-            return;
-        }
-        this.loadingCapabilities = false;
-        this.inspecting = false;
-        this.planning = false;
     }
 
-    onRootInput(event) {
-        this.root = event && event.target ? String(event.target.value || "") : "";
+    onPatternInput(event) {
+        this.pattern = event && event.target ? String(event.target.value || "") : "";
+    }
+
+    onPathFilterInput(event) {
+        this.pathFilter = event && event.target ? String(event.target.value || "") : "";
+    }
+
+    onKindChange(event) {
+        this.kind = event && event.target ? String(event.target.value || "") : "";
+    }
+
+    onSortChange(event) {
+        this.sort = event && event.target ? String(event.target.value || "") : "name";
+    }
+
+    query() {
+        return {
+            pattern: this.pattern || undefined,
+            pathFilter: this.pathFilter || undefined,
+            kind: this.kind || undefined,
+            sort: this.sort,
+            limit: 100,
+        };
+    }
+
+    runSearch() {
+        this.searching = true;
+        this.error = "";
+        if (!this.post({ type: "search", ...this.query() })) this.searching = false;
+    }
+
+    runWalk() {
+        this.searching = true;
+        this.error = "";
+        const root = (this.pathFilter || "").trim();
+        if (!root) {
+            this.searching = false;
+            this.error = "Walk mode needs an absolute folder in the path filter field.";
+            return;
+        }
+        if (!this.post({ type: "searchWalk", root, ...this.query() })) this.searching = false;
     }
 
     loadCapabilities() {
         this.loadingCapabilities = true;
         this.error = "";
         if (!this.post({ type: "capabilities" })) this.loadingCapabilities = false;
-    }
-
-    runInspect() {
-        this.inspecting = true;
-        this.error = "";
-        const root = (this.root || "").trim();
-        if (!this.post({ type: "inspect", root: root || undefined, limit: 200 })) this.inspecting = false;
-    }
-
-    planInstall() {
-        this.planning = true;
-        this.error = "";
-        if (!this.post({ type: "installPlan", noShortcut: false, resetConfig: false })) this.planning = false;
-    }
-
-    planUninstall() {
-        this.planning = true;
-        this.error = "";
-        if (!this.post({ type: "uninstallPlan", keepConfig: true })) this.planning = false;
     }
 
     closeWindow() {
@@ -335,6 +419,11 @@ export default class IndexPage {
         if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
         if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
         return `${(value / 1024 ** 3).toFixed(2)} GB`;
+    }
+
+    formatTime(value) {
+        if (!value) return "—";
+        return new Date(value).toISOString().slice(0, 19).replace("T", " ");
     }
 }
 </script>
