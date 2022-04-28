@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: Inspect a directory and plan an install or upgrade of OpenFinder without touching host state.
+description: Build or update an NTFS index and search it through the OpenFinder CLI without inventing a directory walk.
 ---
 
 # OpenFinder agent workflow
@@ -17,62 +17,74 @@ command returns a stable exit code:
 Prefer `--json` and read the `{ "ok": true, "data": ... }` or
 `{ "ok": false, "error": ... }` envelope. Do not parse human prose.
 
-## Read-only discovery
-
-1. Read the capability table. A capability whose `state` is not `null` is
-   unavailable and must not be attempted.
+## 1. Discover capabilities
 
    `open-finder capabilities --json`
 
-2. Inspect a bounded directory tree. `--limit` keeps the report small.
+A capability whose `state` is not `null` is unavailable. `unsupported_platform`
+means this host has no NTFS index backend and must not be worked around with a
+directory walk. `dependency_blocked` means the request needs an elevated
+process or a missing dependency.
 
-   `open-finder inspect --root <path> --limit <n> --json`
+## 2. Build or refresh the index
 
-## Install or upgrade
+Inspect the volume first. This is read-only and needs no index write.
 
-`install` is idempotent: it plans a config write, an install marker, and a
-shortcut under the platform standard locations. It never enables auto-start and
-never requests silent elevation.
+   `open-finder index --volume <volume> --dry-run --json`
 
-3. Preview the plan. `--no-shortcut` skips shortcut creation and
-   `--reset-config` rewrites configuration instead of reusing it.
+Then build. On Windows this reads `$MFT` directly and requires an elevated
+process. A permission failure is reported as `dependency_blocked`.
 
-   `open-finder install --dry-run --no-shortcut --reset-config --json`
+   `open-finder index --volume <volume> --actor <id> --json`
 
-4. Show the plan to the user. Do not apply it without explicit confirmation.
+Apply journal changes incrementally. If the response has
+`"needsRescan": true`, the journal no longer covers the saved cursor. Rebuild
+with the command above instead of guessing.
 
-   `open-finder install --actor <id> --json`
+   `open-finder index --update --max-records <count> --actor <id> --json`
 
-## Uninstall
+The index lives under the user configuration directory. Use `--index-dir` or
+`OPEN_FINDER_INDEX_DIR` to make the location explicit.
 
-`uninstall` removes the shortcut, install marker, and configuration unless
-`--keep-config` is set.
+When the response reports `"strategy": "usn-enum"` together with
+`"deletionsTracked": false`, the host rejected the journal read call and the
+changes came from MFT enumeration. Deletions are then invisible, so say that
+when you report results instead of implying the index is exact.
 
-5. Preview removal.
+## 3. Search
 
-   `open-finder uninstall --dry-run --keep-config --json`
+   `open-finder search --pattern <glob> --path-filter <path> --json`
 
-6. Apply after explicit confirmation.
+Filters compose: `--regex`, `--match-path`, `--kind <kind>`,
+`--min-size`, `--max-size`, `--modified-after-ms`, `--modified-before-ms`,
+`--sort <key>`, `--desc`, `--limit`, `--offset`.
 
-   `open-finder uninstall --actor <id> --json`
+Results are paged. `total` is the full match count, `hasMore` tells you whether
+to request the next page. Never raise `--limit` above what you need: pages are
+capped at 1000 entries so a million-row answer cannot exhaust the host.
 
-## Audit
+## 4. Explicit non-index search
 
-Every install, upgrade, and uninstall call is recorded by the shared audit
-facility. Use `--actor-kind agent` and a stable `--actor` id so the records are
-attributable.
+Only use this when the user asked to search one folder, or when
+`capabilities` reports `unsupported_platform` and the user accepted a
+non-indexed answer. Results are labelled `"indexed": false` and
+`"mode": "portable-walk"`.
 
-   `open-finder audit --kind <user|agent> --limit <n> --json`
+   `open-finder search --mode <mode> --root <path> --pattern <glob> --json`
+
+## 5. Audit
+
+Every call is recorded by the shared audit facility. Use `--actor-kind agent`
+and a stable `--actor` id so records are attributable.
+
+   `open-finder audit --kind <kind> --limit <count> --json`
 
 ## Safety
 
-- Mutating commands are `install` and `uninstall`. Always run the `--dry-run`
-  form first and show the complete action list to the user.
-- Do not execute a mutating command without explicit confirmation（确认）from the
-  user after the dry-run preview.
-- Do not retry a structured capability failure with elevated privileges. Report
-  the `code`, `capability`, and `platform` fields instead.
-- Do not edit host configuration files directly. The CLI and audit records are
-  the only supported path.
-- Treat `--json` output as the contract. Exit code `3` means the capability is
-  unavailable on this platform or is intentionally not implemented yet.
+- Confirm with the user before any command that writes the index (`index` and
+  `index --update`) and before anything that requires an elevated process.
+- Report structured failures verbatim: `code`, `capability`, `platform`. Do not
+  retry a capability failure with elevated privileges on your own.
+- Do not present portable-walk output as an NTFS index result.
+- Do not treat `--limit` as a total result count.
+- Never edit the index files directly. Rebuild or update through the CLI.
