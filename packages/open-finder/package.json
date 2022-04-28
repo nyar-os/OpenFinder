@@ -18,11 +18,7 @@
             "import": "./dist/index.js"
         }
     },
-    "files": [
-        "dist",
-        "locales",
-        "Readme.md"
-    ],
+    "files": ["dist", "locales", "Readme.md", "License.md"],
     "scripts": {
         "build": "tsc -p tsconfig.json"
     },
