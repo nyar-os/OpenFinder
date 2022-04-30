@@ -156,3 +156,37 @@ pub fn capabilities() -> Capabilities {
         ],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_and_portable_walk_are_portable() {
+        let report = capabilities();
+        assert!(report.is_available(capability_ids::SEARCH));
+        assert!(report.is_available(capability_ids::PORTABLE_WALK));
+    }
+
+    #[test]
+    fn ntfs_index_capabilities_follow_the_volume_backend() {
+        let report = capabilities();
+        let build = report.get(capability_ids::INDEX_BUILD).expect("index-build is reported");
+        let update = report.get(capability_ids::INDEX_UPDATE).expect("index-update is reported");
+        if cfg!(windows) {
+            assert!(build.is_available());
+            assert!(update.is_available());
+        }
+        else {
+            assert_eq!(build.state, Some(CapabilityState::UnsupportedPlatform));
+            assert_eq!(update.state, Some(CapabilityState::UnsupportedPlatform));
+        }
+    }
+
+    #[test]
+    fn host_install_waits_for_the_application_domain() {
+        let report = capabilities();
+        assert_eq!(report.get(capability_ids::HOST_INSTALL).and_then(|item| item.state), Some(CapabilityState::NotImplemented));
+        assert_eq!(report.get(capability_ids::HOST_UNINSTALL).and_then(|item| item.state), Some(CapabilityState::NotImplemented));
+    }
+}

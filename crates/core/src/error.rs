@@ -131,3 +131,33 @@ pub fn capability_code(error: &Error) -> Option<&'static str> {
 
 /// Domain result alias.
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capability_states_have_stable_codes() {
+        assert_eq!(CapabilityState::UnsupportedPlatform.code(), "unsupported_platform");
+        assert_eq!(CapabilityState::NotImplemented.code(), "not_implemented");
+        assert_eq!(CapabilityState::DependencyBlocked.code(), "dependency_blocked");
+    }
+
+    #[test]
+    fn payload_carries_the_capability_code() {
+        let error = Error::capability("index-build", CapabilityState::DependencyBlocked, "elevation required");
+        let payload = error.payload();
+        assert_eq!(payload.code, "dependency_blocked");
+        assert_eq!(payload.capability.as_deref(), Some("index-build"));
+        assert!(payload.path.is_none());
+    }
+
+    #[test]
+    fn io_errors_report_the_path() {
+        let error = Error::io("C:\\index\\meta.json", std::io::Error::from(std::io::ErrorKind::NotFound));
+        let payload = error.payload();
+        assert_eq!(payload.code, "io_error");
+        assert_eq!(payload.path.as_deref(), Some("C:\\index\\meta.json"));
+        assert!(payload.capability.is_none());
+    }
+}
