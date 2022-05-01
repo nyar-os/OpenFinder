@@ -48,6 +48,8 @@ export interface BuildReport {
     recordSize: number;
     recordCount: number;
     scanned: number;
+    unallocated: number;
+    nameless: number;
     entryCount: number;
     cursor: number;
     tookMs: number;

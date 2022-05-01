@@ -138,6 +138,7 @@ function formatBuild(report: BuildReport): string {
         `volume: ${report.volume}`,
         `index: ${report.indexDir}`,
         `records: ${report.scanned} scanned / ${report.recordCount}`,
+        `skipped: ${report.unallocated} unallocated, ${report.nameless} nameless`,
         `entries: ${report.entryCount}`,
         `cursor: ${report.cursor}`,
         `method: ${report.method}`,

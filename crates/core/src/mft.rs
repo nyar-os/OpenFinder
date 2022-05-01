@@ -7,6 +7,19 @@ use crate::{
     volume::VolumeReader,
 };
 
+/// Accounting for one `$MFT` scan.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScanStats {
+    /// Record slots examined.
+    pub scanned: u64,
+    /// Slots whose record is unallocated or carries no `FILE` signature.
+    pub unallocated: u64,
+    /// Allocated slots without a `$FILE_NAME` attribute.
+    pub nameless: u64,
+    /// Entries produced for the index.
+    pub entries: u64,
+}
+
 /// Batched MFT reader.
 pub struct MftReader<R> {
     reader: R,
@@ -65,32 +78,39 @@ impl<R: VolumeReader> MftReader<R> {
 
     /// Scan records in batches and yield allocated entries with a name.
     ///
-    /// Returns the number of record slots examined. `record_limit` caps the scan
-    /// so a caller can page over a very large MFT.
-    pub fn scan<F>(&mut self, record_limit: Option<u64>, mut on_entry: F) -> Result<u64>
+    /// `record_limit` caps the scan so a caller can page over a very large MFT.
+    /// The returned [`ScanStats`] accounts for every record slot, so a short
+    /// entry count is explained by unallocated slots or missing names instead of
+    /// being attributed to lost reads.
+    pub fn scan<F>(&mut self, record_limit: Option<u64>, mut on_entry: F) -> Result<ScanStats>
     where
         F: FnMut(IndexEntry),
     {
         const BATCH: u64 = 128;
         let limit = record_limit.unwrap_or(self.record_count).min(self.record_count);
-        let mut scanned = 0u64;
-        while scanned < limit {
-            let count = BATCH.min(limit - scanned);
+        let mut stats = ScanStats::default();
+        while stats.scanned < limit {
+            let count = BATCH.min(limit - stats.scanned);
             let mut batch = vec![0u8; count as usize * self.record_size];
-            self.read_stream(scanned * self.record_size as u64, &mut batch)?;
+            self.read_stream(stats.scanned * self.record_size as u64, &mut batch)?;
             for index in 0..count {
                 let start = index as usize * self.record_size;
                 let record = &batch[start..start + self.record_size];
-                let parsed = parse_record(record, NTFS_SECTOR_SIZE, scanned + index)?;
-                if parsed.in_use
-                    && let Some(entry) = parsed.entry
-                {
+                let parsed = parse_record(record, NTFS_SECTOR_SIZE, stats.scanned + index)?;
+                if !parsed.in_use {
+                    stats.unallocated += 1;
+                }
+                else if let Some(entry) = parsed.entry {
+                    stats.entries += 1;
                     on_entry(entry);
                 }
+                else {
+                    stats.nameless += 1;
+                }
             }
-            scanned += count;
+            stats.scanned += count;
         }
-        Ok(scanned)
+        Ok(stats)
     }
 
     fn read_stream(&mut self, offset: u64, out: &mut [u8]) -> Result<()> {
@@ -137,8 +157,12 @@ mod tests {
     fn scan_skips_unallocated_and_nameless_records() {
         let mut reader = MftReader::bootstrap(fixture_volume()).unwrap();
         let mut names = Vec::new();
-        let scanned = reader.scan(Some(3), |entry| names.push(entry.name.clone())).unwrap();
-        assert_eq!(scanned, 3);
+        let stats = reader.scan(Some(3), |entry| names.push(entry.name.clone())).unwrap();
+        assert_eq!(stats.scanned, 3);
+        assert_eq!(stats.entries, 1);
+        assert_eq!(stats.unallocated, 1);
+        assert_eq!(stats.nameless, 1);
+        assert_eq!(stats.unallocated + stats.nameless + stats.entries, stats.scanned);
         assert_eq!(names, vec!["report.txt".to_string()]);
     }
 

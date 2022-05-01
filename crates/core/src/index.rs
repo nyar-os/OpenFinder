@@ -222,6 +222,10 @@ pub struct BuildReport {
     pub record_count: u64,
     /// Record slots actually scanned.
     pub scanned: u64,
+    /// Scanned slots that are unallocated or carry no `FILE` signature.
+    pub unallocated: u64,
+    /// Scanned slots that are allocated but have no `$FILE_NAME`.
+    pub nameless: u64,
     /// Entries retained.
     pub entry_count: u64,
     /// USN cursor captured before scanning.
@@ -315,7 +319,7 @@ pub fn build_index(options: &BuildOptions) -> Result<BuildReport> {
     let mut reader = MftReader::bootstrap(handle)?;
     let record_count = reader.record_count();
     let mut entries = HashMap::with_capacity(record_count.min(1_000_000) as usize);
-    let scanned = reader.scan(options.record_limit, |entry| {
+    let stats = reader.scan(options.record_limit, |entry| {
         entries.insert(entry.frn, entry);
     })?;
     let now = now_ms();
@@ -341,7 +345,9 @@ pub fn build_index(options: &BuildOptions) -> Result<BuildReport> {
         volume_serial: boot.volume_serial,
         record_size: boot.record_size()? as u64,
         record_count,
-        scanned,
+        scanned: stats.scanned,
+        unallocated: stats.unallocated,
+        nameless: stats.nameless,
         entry_count: index.meta.entry_count,
         cursor,
         took_ms: elapsed_ms(started),
