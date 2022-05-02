@@ -136,20 +136,40 @@ pub fn query(volume: &mut Volume) -> Result<JournalState> {
     })
 }
 
+/// Size of `READ_USN_JOURNAL_DATA_V1` including its trailing padding.
+///
+/// The driver rejects a short input with `ERROR_INVALID_USER_BUFFER` (1784),
+/// so this value is part of the contract rather than an implementation detail.
+const READ_INPUT_SIZE: usize = 48;
+
+/// Build the `READ_USN_JOURNAL_DATA_V1` input buffer.
+///
+/// Layout: `StartUsn` 0, `ReasonMask` 8, `ReturnOnlyOnClose` 12, `Timeout` 16,
+/// `BytesToWaitFor` 24, `UsnJournalID` 32, `MinMajorVersion` 40,
+/// `MaxMajorVersion` 42. Both version bounds are `2` because the parser only
+/// accepts `USN_RECORD_V2`.
+fn build_read_input(journal_id: u64, start_usn: u64) -> [u8; READ_INPUT_SIZE] {
+    let mut input = [0u8; READ_INPUT_SIZE];
+    input[0..8].copy_from_slice(&start_usn.to_le_bytes());
+    // ReasonMask: every change. ReturnOnlyOnClose: every record, not only closes.
+    input[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+    input[12..16].copy_from_slice(&0u32.to_le_bytes());
+    // Timeout and BytesToWaitFor stay zero so the call returns immediately.
+    input[16..24].copy_from_slice(&0i64.to_le_bytes());
+    input[24..32].copy_from_slice(&0u64.to_le_bytes());
+    input[32..40].copy_from_slice(&journal_id.to_le_bytes());
+    input[40..42].copy_from_slice(&2u16.to_le_bytes());
+    input[42..44].copy_from_slice(&2u16.to_le_bytes());
+    input
+}
+
 /// Read one batch of USN records starting at `start_usn`.
 ///
 /// The call never blocks: `BytesToWaitFor` stays zero and the timeout is zero.
 /// `chunk_bytes` is the payload size; the output buffer carries eight extra
 /// bytes for the next start cursor.
 pub fn read(volume: &mut Volume, journal: &JournalState, start_usn: u64, chunk_bytes: u32) -> Result<(u64, Vec<UsnRecord>)> {
-    let mut input = [0u8; 32];
-    input[0..8].copy_from_slice(&start_usn.to_le_bytes());
-    // ReasonMask: every change. ReturnOnlyOnClose: every record, not only closes.
-    input[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
-    input[12..16].copy_from_slice(&0u32.to_le_bytes());
-    input[16..20].copy_from_slice(&0u32.to_le_bytes());
-    input[20..24].copy_from_slice(&0u32.to_le_bytes());
-    input[24..32].copy_from_slice(&journal.id.to_le_bytes());
+    let input = build_read_input(journal.id, start_usn);
     let output = volume.ioctl(FSCTL_READ_USN_JOURNAL, &input, chunk_bytes.saturating_add(8))?;
     parse_read_output(&output)
 }
@@ -233,6 +253,20 @@ mod tests {
         assert!(records[0].requires_reload());
         assert!(records[1].is_delete());
         assert_eq!(records[1].parent_frn, 5);
+    }
+
+    #[test]
+    fn read_input_matches_read_usn_journal_data_v1() {
+        let input = build_read_input(0x0123_4567_89AB_CDEF, 0x1_0000_0000);
+        assert_eq!(input.len(), 48);
+        assert_eq!(u64::from_le_bytes(input[0..8].try_into().unwrap()), 0x1_0000_0000);
+        assert_eq!(u32::from_le_bytes(input[8..12].try_into().unwrap()), u32::MAX);
+        assert_eq!(u32::from_le_bytes(input[12..16].try_into().unwrap()), 0);
+        assert_eq!(i64::from_le_bytes(input[16..24].try_into().unwrap()), 0);
+        assert_eq!(u64::from_le_bytes(input[24..32].try_into().unwrap()), 0);
+        assert_eq!(u64::from_le_bytes(input[32..40].try_into().unwrap()), 0x0123_4567_89AB_CDEF);
+        assert_eq!(u16::from_le_bytes(input[40..42].try_into().unwrap()), 2);
+        assert_eq!(u16::from_le_bytes(input[42..44].try_into().unwrap()), 2);
     }
 
     #[test]
