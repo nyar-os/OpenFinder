@@ -11,7 +11,7 @@
 //! `OPEN_FINDER_INDEX_DIR` environment variable override it.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -133,15 +133,41 @@ impl Index {
     }
 
     /// Remove one entry and every indexed descendant.
+    ///
+    /// A file deletion costs one map removal. A directory deletion walks one
+    /// level at a time so the cost stays proportional to the map size times the
+    /// directory depth instead of scanning the whole map once per descendant.
     pub fn remove_subtree(&mut self, frn: u64) -> u64 {
-        let mut targets = vec![frn];
+        let Some(entry) = self.entries.get(&frn)
+        else {
+            return 0;
+        };
+        if !entry.is_dir {
+            self.entries.remove(&frn);
+            self.meta.entry_count = self.entries.len() as u64;
+            return 1;
+        }
         let mut removed = 0u64;
-        while let Some(target) = targets.pop() {
-            if self.entries.remove(&target).is_some() {
-                removed += 1;
+        let mut frontier = vec![frn];
+        while !frontier.is_empty() {
+            let pending: HashSet<u64> = frontier.into_iter().collect();
+            for target in &pending {
+                if self.entries.remove(target).is_some() {
+                    removed += 1;
+                }
             }
-            let children: Vec<u64> = self.entries.iter().filter(|(_, entry)| entry.parent_frn == target).map(|(child, _)| *child).collect();
-            targets.extend(children);
+            let mut next = Vec::new();
+            self.entries.retain(|_, entry| {
+                if pending.contains(&entry.parent_frn) {
+                    next.push(entry.frn);
+                    removed += 1;
+                    false
+                }
+                else {
+                    true
+                }
+            });
+            frontier = next;
         }
         self.meta.entry_count = self.entries.len() as u64;
         removed
@@ -553,6 +579,16 @@ mod tests {
         let removed = index.remove_subtree(10);
         assert_eq!(removed, 3);
         assert_eq!(index.meta.entry_count, 1);
+    }
+
+    #[test]
+    fn removing_a_file_does_not_touch_its_siblings() {
+        let mut index = sample_index();
+        assert_eq!(index.remove_subtree(12), 1);
+        assert_eq!(index.meta.entry_count, 3);
+        assert!(index.entries.contains_key(&11));
+        assert_eq!(index.remove_subtree(12), 0);
+        assert_eq!(index.remove_subtree(999), 0);
     }
 
     #[test]
