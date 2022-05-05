@@ -10,7 +10,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        # Native surface is Windows-only (NTFS MFT / USN). Keep Ubuntu for the
+        # portable core. Skip macOS: GitHub arm64 runners queue for tens of
+        # minutes and cancel the whole check-rust run as failure.
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     env:
       CARGO_BUILD_JOBS: "4"

@@ -28,6 +28,7 @@
     "optionalDependencies": {
         "@wae/open-finder-win32-x64": "workspace:*"
     },
+    "repository": "https://github.com/nyar-os/OpenFinder",
     "devDependencies": {
         "@types/node": "^22.20.4",
         "typescript": "^5.9.2"
