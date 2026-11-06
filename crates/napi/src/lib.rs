@@ -11,8 +11,8 @@ use std::{cell::RefCell, env, path::PathBuf};
 
 use open_finder_core::{
     AuditFields, BuildOptions, CapabilityState, Error as CoreError, InstallOptions, QuerySpec, SortKey, UninstallOptions, WalkOptions,
-    apply_install, apply_uninstall, build_index, capabilities as core_capabilities, capability_ids, default_index_dir, inspect_volume,
-    load_index, plan_install, plan_uninstall, platform_name, search, update_index, walk,
+    apply_install, apply_uninstall, build_index, capabilities as core_capabilities, capability_ids, config_dir, default_index_dir,
+    inspect_volume, load_index, plan_install, plan_uninstall, platform_name, search, update_index, walk,
 };
 use serde_json::{Value, json};
 use wae::{
@@ -27,6 +27,8 @@ use wae::audit::Mode;
 
 const APP_TITLE: &str = "OpenFinder";
 const GUI_DIR_ENV: &str = "OPEN_FINDER_GUI";
+/// GUI 宿主诊断日志：宿主会隐藏系统为它新建的控制台窗口，之后 stderr 不可见。
+const GUI_LOG_ENV: &str = "WAE_WEBVIEW_LOG_FILE";
 
 thread_local! {
     static GUI: RefCell<Option<wae::webview::WebViewHost>> = const { RefCell::new(None) };
@@ -304,6 +306,26 @@ fn resolve_gui_dir(requested: Option<String>) -> Result<String> {
     Err(Error::new("gui content dir not found: pass `contentDir` or build `packages/open-finder-ui/dist/gui`"))
 }
 
+/// Resolve the GUI diagnostics log and expose it to the host.
+///
+/// `node.exe` 是 CUI 子系统程序：没有控制台的启动器会为它新建一个可见的黑色
+/// 控制台窗口，宿主在创建产品窗口时把它隐藏。隐藏之后 stderr 不再有人看得见，
+/// 所以宿主诊断必须落盘。显式设置的环境变量优先，便于排障时改路径。
+fn ensure_gui_log() -> Option<PathBuf> {
+    if let Some(existing) = env::var_os(GUI_LOG_ENV) {
+        return Some(PathBuf::from(existing));
+    }
+    let dir = config_dir().join("logs");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    let path = dir.join("gui.log");
+    // SAFETY: N-API 调用是进程内的单线程执行，宿主只在此进程中读取该变量。
+    unsafe { env::set_var(GUI_LOG_ENV, &path) };
+    eprintln!("[open-finder] gui.log path={}", path.display());
+    Some(path)
+}
+
 fn actor_kind(value: Option<&str>) -> wae::audit::ActorKind {
     match value {
         Some(value) if value.eq_ignore_ascii_case("agent") => wae::audit::ActorKind::Agent,
@@ -562,6 +584,10 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
     let content_dir = resolve_gui_dir(optional_string(arg, "contentDir")?)?;
     let title = optional_string(arg, "title")?.unwrap_or_else(|| APP_TITLE.to_string());
     let params = json!({ "contentDir": &content_dir, "title": &title });
+    let log_path = ensure_gui_log();
+    if log_path.is_none() {
+        eprintln!("[open-finder] gui.log unavailable: host diagnostics stay on stderr only");
+    }
 
     let result = audit::run(capability_ids::GUI_OPEN, Mode::Execute, params, || {
         let options = OpenOptions::from_content_dir(&content_dir, &title);

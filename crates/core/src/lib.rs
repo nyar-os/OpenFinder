@@ -22,7 +22,7 @@ mod volume;
 mod walk;
 
 pub use audit::{AuditFields, capability_ids};
-pub use config::{Config, config_path, default_index_dir, load_config};
+pub use config::{Config, config_dir, config_path, default_index_dir, load_config};
 pub use error::{CapabilityState, Error, ErrorPayload, Result, capability_code};
 pub use index::{
     BuildOptions, BuildReport, Index, IndexEntry, IndexMeta, UpdateReport, VolumeReport, build_index, inspect_volume, load_index, update_index,
