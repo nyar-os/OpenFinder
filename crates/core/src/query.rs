@@ -187,11 +187,14 @@ pub fn search(index: &Index, spec: &QuerySpec) -> Result<SearchPage> {
         });
     }
     let total = hits.len() as u64;
+    // The index map iterates in hash order, so equal sort keys need the FRN as a
+    // tie-break. Without it the same query can return different rows on each
+    // call and pages would overlap or skip entries.
     match spec.sort {
-        SortKey::Name => hits.sort_by_key(|hit| hit.name.to_lowercase()),
-        SortKey::Path => hits.sort_by_key(|hit| hit.path.to_lowercase()),
-        SortKey::Size => hits.sort_by_key(|hit| hit.size),
-        SortKey::Modified => hits.sort_by_key(|hit| hit.modified_ms),
+        SortKey::Name => hits.sort_by_cached_key(|hit| (hit.name.to_lowercase(), hit.frn)),
+        SortKey::Path => hits.sort_by_cached_key(|hit| (hit.path.to_lowercase(), hit.frn)),
+        SortKey::Size => hits.sort_by_cached_key(|hit| (hit.size, hit.frn)),
+        SortKey::Modified => hits.sort_by_cached_key(|hit| (hit.modified_ms, hit.frn)),
     }
     if spec.descending {
         hits.reverse();
@@ -327,6 +330,50 @@ mod tests {
         assert_eq!(page.hits.len(), 2);
         assert_eq!(page.hits[0].name, "main.RS");
         assert!(page.has_more);
+    }
+
+    #[test]
+    fn equal_sort_keys_keep_a_deterministic_order() {
+        let mut entries = HashMap::new();
+        entries.insert(
+            5,
+            IndexEntry { frn: 5, parent_frn: 5, name: ".".to_string(), is_dir: true, size: 0, created_ms: 0, modified_ms: 0, accessed_ms: 0 },
+        );
+        for frn in [40u64, 41, 42] {
+            entries.insert(
+                frn,
+                IndexEntry {
+                    frn,
+                    parent_frn: 5,
+                    name: "same.dll".to_string(),
+                    is_dir: false,
+                    size: 10,
+                    created_ms: 0,
+                    modified_ms: 0,
+                    accessed_ms: 0,
+                },
+            );
+        }
+        let index = Index {
+            meta: IndexMeta {
+                schema: INDEX_SCHEMA.to_string(),
+                volume: "C:".to_string(),
+                volume_serial: 1,
+                record_size: 1024,
+                method: "mft".to_string(),
+                built_at_ms: 0,
+                updated_at_ms: 0,
+                cursor: 0,
+                record_count: 4,
+                entry_count: 4,
+            },
+            entries,
+        };
+        let first = search(&index, &QuerySpec { sort: SortKey::Size, limit: 3, ..QuerySpec::default() }).unwrap();
+        let second = search(&index, &QuerySpec { sort: SortKey::Size, limit: 3, ..QuerySpec::default() }).unwrap();
+        let frns = first.hits.iter().map(|hit| hit.frn).collect::<Vec<_>>();
+        assert_eq!(frns, vec![5, 40, 41]);
+        assert_eq!(second.hits.iter().map(|hit| hit.frn).collect::<Vec<_>>(), frns);
     }
 
     #[test]
