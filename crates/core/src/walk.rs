@@ -50,7 +50,8 @@ pub fn walk(options: &WalkOptions) -> Result<SearchPage> {
     let mut skipped = 0u64;
     let mut inspected = 0u64;
     let mut stack = vec![(options.root.clone(), 0u32)];
-    while let Some((directory, depth)) = stack.pop() {
+    let mut truncated = false;
+    'walk: while let Some((directory, depth)) = stack.pop() {
         let Ok(reader) = fs::read_dir(&directory)
         else {
             skipped += 1;
@@ -58,7 +59,10 @@ pub fn walk(options: &WalkOptions) -> Result<SearchPage> {
         };
         for entry in reader {
             if inspected >= options.max_entries {
-                break;
+                // Stop the whole walk, not just this directory, and mark the page
+                // so `total` is never read as the size of the full tree.
+                truncated = true;
+                break 'walk;
             }
             let Ok(entry) = entry
             else {
@@ -153,6 +157,7 @@ pub fn walk(options: &WalkOptions) -> Result<SearchPage> {
         indexed: false,
         root: Some(options.root.display().to_string()),
         skipped,
+        truncated,
         took_ms: SystemTime::now().duration_since(started).map_or(0, |duration| duration.as_millis() as u64),
     })
 }
@@ -183,6 +188,27 @@ mod tests {
         assert_eq!(page.hits[0].name, "beta.log");
         assert!(!page.indexed);
         assert_eq!(page.mode, "portable-walk");
+        assert!(!page.truncated);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn walk_reports_truncation_at_the_entry_cap() {
+        let root = std::env::temp_dir().join(format!("openfinder-cap-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        for index in 0..12 {
+            fs::write(root.join(format!("file-{index}.txt")), b"x").unwrap();
+        }
+        let page = walk(&WalkOptions {
+            root: root.clone(),
+            max_entries: 5,
+            spec: QuerySpec { limit: 50, ..QuerySpec::default() },
+            ..WalkOptions::default()
+        })
+        .unwrap();
+        assert_eq!(page.total, 5);
+        assert!(page.truncated, "a run stopped by `maxEntries` must say so");
+        assert!(!page.has_more, "truncation is not a page with more rows");
         fs::remove_dir_all(&root).unwrap();
     }
 

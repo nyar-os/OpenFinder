@@ -65,7 +65,9 @@ unavailable.
 Search supports glob (`*`, `?`), regex, case-insensitive path filtering, size
 and modified-time ranges, kind (`file` / `dir`), sorting by `name` / `path` /
 `size` / `modified`, and paging (`--limit`, `--offset`). Pages are capped at 1000
-hits; `total` and `hasMore` describe the full result set.
+hits; `total` and `hasMore` describe the full result set. A portable walk that
+stops at `--max-entries` sets `truncated: true`, and its `total` then counts the
+entries it inspected.
 
 ## Platform boundary
 

@@ -63,6 +63,10 @@ Results are paged. `total` is the full match count, `hasMore` tells you whether
 to request the next page. Never raise `--limit` above what you need: pages are
 capped at 1000 entries so a million-row answer cannot exhaust the host.
 
+A portable walk that stops at `--max-entries` returns `"truncated": true`. Treat
+its `total` as the inspected count and say so instead of reporting a folder as
+fully searched.
+
 ## 4. Explicit non-index search
 
 Only use this when the user asked to search one folder, or when

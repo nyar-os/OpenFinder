@@ -139,6 +139,8 @@ pub struct SearchPage {
     pub root: Option<String>,
     /// Entries that could not be inspected during a walk.
     pub skipped: u64,
+    /// Whether a portable walk stopped at `maxEntries` before the tree was exhausted.
+    pub truncated: bool,
     /// Elapsed milliseconds.
     pub took_ms: u64,
 }
@@ -219,6 +221,7 @@ pub fn search(index: &Index, spec: &QuerySpec) -> Result<SearchPage> {
         indexed: true,
         root: Some(index.meta.volume.clone()),
         skipped: 0,
+        truncated: false,
         took_ms: SystemTime::now().duration_since(started).map_or(0, |duration| duration.as_millis() as u64),
     })
 }

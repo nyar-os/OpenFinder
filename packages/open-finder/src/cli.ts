@@ -182,6 +182,9 @@ function formatPage(page: SearchPage): string {
         `took: ${page.tookMs} ms`,
         '',
     ];
+    if (page.truncated) {
+        lines.unshift('truncated: the walk stopped at `--max-entries`, `total` counts inspected entries only');
+    }
     for (const hit of page.hits) {
         const kind = hit.isDir ? 'dir ' : 'file';
         lines.push(`${kind}\t${String(hit.size).padStart(10)}\t${formatDuration(hit.modifiedMs)}\t${hit.path}`);

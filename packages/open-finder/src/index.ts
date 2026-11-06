@@ -126,6 +126,8 @@ export interface SearchPage {
     indexed: boolean;
     root: string | null;
     skipped: number;
+    /** True when a portable walk stopped at `maxEntries` before the tree was exhausted. */
+    truncated: boolean;
     tookMs: number;
 }
 
