@@ -70,8 +70,14 @@
                         </label>
                     </div>
                     <div class="app-actions">
-                        <Button type="button" :loading="searching" :disabled="searching" @click="runSearch">
+                        <Button type="button" :loading="searching" :disabled="searching" @click="resetAndSearch">
                             {{ searchLabel }}
+                        </Button>
+                        <Button type="button" variant="secondary" :loading="searching" :disabled="searching || offset === 0" @click="previousPage">
+                            {{ previousLabel }}
+                        </Button>
+                        <Button type="button" variant="secondary" :loading="searching" :disabled="searching || !hasMore" @click="nextPage">
+                            {{ nextLabel }}
                         </Button>
                         <Button type="button" variant="secondary" :loading="searching" :disabled="searching" @click="runWalk">
                             {{ walkLabel }}
@@ -232,6 +238,8 @@ export default class IndexPage {
     searchLabel = "Search index";
     walkLabel = "Walk folder";
     closeLabel = "Close";
+    previousLabel = "Previous page";
+    nextLabel = "Next page";
 
     modeLabel = "Mode";
     totalLabel = "Total matches";
@@ -256,6 +264,9 @@ export default class IndexPage {
     pathFilter = "";
     kind = "";
     sort = "name";
+    pageSize = 100;
+    offset = 0;
+    hasMore = false;
     searching = false;
     loadingCapabilities = false;
     error = "";
@@ -331,12 +342,17 @@ export default class IndexPage {
         }
         const value = data.data || {};
         if (Array.isArray(value.hits)) {
+            const offset = Number(value.offset) || 0;
+            const total = Number(value.total) || 0;
             this.searching = false;
             this.error = "";
+            this.offset = offset;
+            this.hasMore = value.hasMore === true;
             this.status = `Query complete in ${Number(value.tookMs) || 0} ms.`;
             this.modeText = `${value.mode || "index"} (indexed: ${value.indexed ? "yes" : "no"})`;
-            this.totalText = String(Number(value.total) || 0);
-            this.pageText = `${Number(value.offset) || 0}..${(Number(value.offset) || 0) + value.hits.length}${value.hasMore ? " +" : ""}`;
+            this.totalText = String(total);
+            const shown = offset + value.hits.length;
+            this.pageText = `${offset}..${shown} of ${total}${value.hasMore ? " +" : ""}`;
             this.hitRows = value.hits.map((hit, index) => ({
                 id: String(index),
                 cells: [
@@ -382,7 +398,8 @@ export default class IndexPage {
             pathFilter: this.pathFilter || undefined,
             kind: this.kind || undefined,
             sort: this.sort,
-            limit: 100,
+            limit: this.pageSize,
+            offset: this.offset,
         };
     }
 
@@ -390,6 +407,23 @@ export default class IndexPage {
         this.searching = true;
         this.error = "";
         if (!this.post({ type: "search", ...this.query() })) this.searching = false;
+    }
+
+    resetAndSearch() {
+        this.offset = 0;
+        this.runSearch();
+    }
+
+    nextPage() {
+        if (!this.hasMore) return;
+        this.offset += this.pageSize;
+        this.runSearch();
+    }
+
+    previousPage() {
+        if (this.offset === 0) return;
+        this.offset = Math.max(0, this.offset - this.pageSize);
+        this.runSearch();
     }
 
     runWalk() {
