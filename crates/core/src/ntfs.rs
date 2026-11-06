@@ -17,6 +17,10 @@ const ATTR_FILE_NAME: u32 = 0x30;
 const ATTR_STANDARD_INFORMATION: u32 = 0x10;
 const ATTR_DATA: u32 = 0x80;
 const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+/// Windows stores the directory flag of a `$FILE_NAME` value in bit 28
+/// (`0x1000_0000`) instead of the Win32 attribute bit above. Both are accepted
+/// because either value marks a directory and no other attribute uses them.
+const FILE_NAME_DIRECTORY_FLAG: u32 = 0x1000_0000;
 /// File records carry a 48-bit record number plus a 16-bit sequence number.
 const FRN_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 
@@ -193,7 +197,7 @@ pub fn parse_record(bytes: &[u8], sector_size: usize, frn: u64) -> Result<Parsed
         return Ok(ParsedRecord { in_use, entry: None, data });
     };
     let (created_ms, modified_ms, accessed_ms) = standard.unwrap_or((name.created_ms, name.modified_ms, name.accessed_ms));
-    let is_dir = name.flags & FILE_ATTRIBUTE_DIRECTORY != 0;
+    let is_dir = name.flags & (FILE_ATTRIBUTE_DIRECTORY | FILE_NAME_DIRECTORY_FLAG) != 0;
     let size = if is_dir { 0 } else { data.as_ref().map_or(name.size, |stream| stream.size) };
     let entry = IndexEntry { frn, parent_frn: name.parent_frn, name: name.name, is_dir, size, created_ms, modified_ms, accessed_ms };
     Ok(ParsedRecord { in_use, entry: Some(entry), data })
@@ -380,6 +384,16 @@ mod tests {
         record[0x14..0x16].copy_from_slice(&u16::MAX.to_le_bytes());
         let parsed = parse_record(&record, NTFS_SECTOR_SIZE, 9).unwrap();
         assert!(parsed.entry.is_none());
+    }
+
+    #[test]
+    fn directory_flag_marks_the_entry_as_a_directory() {
+        let mut record = fixture_record();
+        let name_value = 0x38 + 56 + 24;
+        record[name_value + 56..name_value + 60].copy_from_slice(&FILE_NAME_DIRECTORY_FLAG.to_le_bytes());
+        let entry = parse_record(&record, NTFS_SECTOR_SIZE, 11).unwrap().entry.unwrap();
+        assert!(entry.is_dir);
+        assert_eq!(entry.size, 0);
     }
 
     fn fixture_record() -> Vec<u8> {
