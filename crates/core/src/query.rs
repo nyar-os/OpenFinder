@@ -539,16 +539,7 @@ mod tests {
         let mut push = |frn: u64, parent_frn: u64, name: &str, is_dir: bool| {
             entries.insert(
                 frn,
-                IndexEntry {
-                    frn,
-                    parent_frn,
-                    name: name.to_string(),
-                    is_dir,
-                    size: 0,
-                    created_ms: 0,
-                    modified_ms: 0,
-                    accessed_ms: 0,
-                },
+                IndexEntry { frn, parent_frn, name: name.to_string(), is_dir, size: 0, created_ms: 0, modified_ms: 0, accessed_ms: 0 },
             );
         };
         push(5, 5, ".", true);

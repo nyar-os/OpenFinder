@@ -5,8 +5,7 @@
 //! compile time (`option_env!`), so a build without git still works.
 
 use std::{
-    env,
-    fs,
+    env, fs,
     path::PathBuf,
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
