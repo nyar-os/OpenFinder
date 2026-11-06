@@ -302,16 +302,17 @@ body {
 }
 .app-results .vmz-ui-table {
     width: 100%;
-    min-width: 60rem;
-    table-layout: fixed;
+    min-width: 0;
+    table-layout: auto;
     border-collapse: separate;
     border-spacing: 0;
 }
 .app-results .vmz-ui-table th,
 .app-results .vmz-ui-table td {
     box-sizing: border-box;
+    /* A cell height is a floor: wrapped paths make the row grow. */
     height: 2.25rem;
-    padding: 0 0.75rem;
+    padding: 0.125rem 0.75rem;
 }
 .app-results .vmz-ui-table th {
     position: sticky;
@@ -319,29 +320,34 @@ body {
     z-index: 2;
 }
 /*
- * Fixed columns are percentage-based so the browser resolves them against the
- * definite table width. A `calc(100% - …)` column makes Chrome treat the width
- * as indefinite and shrink the whole table to its columns.
+ * Column widths: the four narrow columns are sized to their longest real value
+ * and `path` keeps no width, so the automatic table layout spends everything
+ * that is left on it. `table-layout: fixed` cannot express that: it hands
+ * unclaimed width to the columns that already have one, which widened FRN and
+ * Modified while the path column stayed cramped, and a `calc()` remainder made
+ * Chrome shrink the whole table instead.
  */
 .app-results .vmz-ui-table th[data-vmz-col="kind"] {
-    width: 8%;
+    width: 4.5rem;
 }
 .app-results .vmz-ui-table th[data-vmz-col="size"] {
-    width: 9%;
+    width: 6.5rem;
 }
 .app-results .vmz-ui-table th[data-vmz-col="modified"] {
-    width: 15%;
+    width: 10.5rem;
 }
 .app-results .vmz-ui-table th[data-vmz-col="frn"] {
-    width: 9%;
+    width: 9rem;
 }
-/* Path takes the remaining 59% and stays the widest column. */
 .app-results .vmz-ui-table th[data-vmz-col="path"] {
-    width: 59%;
+    width: auto;
+    min-width: 10rem;
 }
+/* Column order: kind, size, modified, path, frn. */
 .app-results .vmz-ui-table td:nth-child(4) {
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
 }
 
 /* Capabilities: a bounded drawer, never a second full-height card. */
