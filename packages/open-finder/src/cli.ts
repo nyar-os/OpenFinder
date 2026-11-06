@@ -76,6 +76,15 @@ function integerOption(options: ParsedOptions, key: string): number | undefined 
 
 /** Configure the audit actor before any capability call. */
 function bootstrap(options: ParsedOptions): void {
+    // Every command names its input with a flag, so a positional argument is a
+    // mistake. Silently ignoring it would let an agent believe a filter applied
+    // while the command returned the whole index.
+    if (options._.length) {
+        throw new AppError({
+            code: 'invalid_argument',
+            message: `unexpected argument \`${options._.join(' ')}\`; every input is a named option, for example \`--pattern <glob>\``,
+        });
+    }
     const kind = stringOption(options, 'actor-kind');
     if (kind !== undefined && kind !== 'user' && kind !== 'agent') {
         throw new AppError({ code: 'invalid_argument', message: '`--actor-kind` must be `user` or `agent`' });
