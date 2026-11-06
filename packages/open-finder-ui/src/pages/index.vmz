@@ -1,192 +1,341 @@
 <template>
     <div class="app-root" data-app="open-finder">
-        <AppShell brand="OpenFinder" homeHref="/" navLabel="Navigation" activeId="home" :nav="navItems">
-            <div class="vmz-slot-content app-workspace">
-                <div role="search" class="app-toolbar">
-                    <div class="app-toolbar__field">
-                        <Field
-                            :label="patternLabel"
-                            controlId="search-pattern"
-                            :value="pattern"
-                            :placeholder="patternPlaceholder"
-                            @input="onPatternInput"
-                        />
-                    </div>
-                    <div class="app-toolbar__field">
-                        <Field
-                            :label="pathFilterLabel"
-                            controlId="search-path"
-                            :value="pathFilter"
-                            :placeholder="pathFilterPlaceholder"
-                            @input="onPathFilterInput"
-                        />
-                    </div>
-                    <label class="app-select">
-                        <span class="app-select__label">
-                            {{ kindLabel }}
-                        </span>
-                        <select :value="kind" @change="onKindChange">
-                            <option value="">
-                                {{ kindAny }}
-                            </option>
-                            <option value="file">
-                                {{ kindFile }}
-                            </option>
-                            <option value="dir">
-                                {{ kindDir }}
-                            </option>
-                        </select>
-                    </label>
-                    <label class="app-select">
-                        <span class="app-select__label">
-                            {{ sortLabel }}
-                        </span>
-                        <select :value="sort" @change="onSortChange">
-                            <option value="name">
-                                {{ sortName }}
-                            </option>
-                            <option value="path">
-                                {{ sortPath }}
-                            </option>
-                            <option value="size">
-                                {{ sortSize }}
-                            </option>
-                            <option value="modified">
-                                {{ sortModified }}
-                            </option>
-                        </select>
-                    </label>
-                    <div class="app-toolbar__actions">
-                        <Button type="button" size="small" :loading="searching" :disabled="searching" @click="resetAndSearch">
-                            {{ searchLabel }}
-                        </Button>
-                        <Button type="button" variant="secondary" size="small" :loading="searching" :disabled="searching" @click="runWalk">
-                            {{ walkLabel }}
-                        </Button>
-                        <Button type="button" variant="secondary" size="small" :disabled="searching || offset === 0" @click="previousPage">
-                            {{ previousLabel }}
-                        </Button>
-                        <Button type="button" variant="secondary" size="small" :disabled="searching || !hasMore" @click="nextPage">
-                            {{ nextLabel }}
-                        </Button>
-                        <Button type="button" variant="secondary" size="small" @click="toggleCapabilities">
-                            {{ capabilitiesToggleText }}
-                        </Button>
-                        <Button type="button" variant="secondary" size="small" @click="closeWindow">
-                            {{ closeLabel }}
-                        </Button>
-                    </div>
-                </div>
-
-                <div class="app-statusbar">
-                    <span class="app-statusbar__stat">
-                        <span class="app-statusbar__label">
-                            {{ modeLabel }}
-                        </span>
-                        <span class="app-statusbar__value">
-                            {{ modeText }}
-                        </span>
-                    </span>
-                    <span class="app-statusbar__stat">
-                        <span class="app-statusbar__label">
-                            {{ totalLabel }}
-                        </span>
-                        <span class="app-statusbar__value">
-                            {{ totalText }}
-                        </span>
-                    </span>
-                    <span class="app-statusbar__stat">
-                        <span class="app-statusbar__label">
-                            {{ pageLabel }}
-                        </span>
-                        <span class="app-statusbar__value">
-                            {{ pageText }}
-                        </span>
-                    </span>
-                    <span v-if="status" role="status" class="app-statusbar__message">
-                        {{ status }}
-                    </span>
-                    <span v-if="error" role="alert" class="app-statusbar__error">
-                        {{ error }}
-                    </span>
-                </div>
-
-                <div class="app-results">
-                    <div v-if="!hitRows.length && !searching" class="app-results__empty">
-                        <Empty :title="emptyHitsTitle" :description="emptyHitsDesc" />
-                    </div>
-                    <Table v-else :columns="hitColumns" :rows="hitRows" :hasRowAction="false" :loading="searching" :loadingLabel="searchingLabel" />
-                </div>
-
-                <section v-if="capabilitiesOpen" class="app-drawer">
-                    <header class="app-drawer__head">
-                        <span class="app-drawer__title">
-                            {{ capabilitiesTitle }}
-                        </span>
-                        <span class="app-drawer__meta">
-                            {{ capabilitiesDesc }}
-                        </span>
-                        <Button type="button" variant="secondary" size="small" :loading="loadingCapabilities" :disabled="loadingCapabilities" @click="loadCapabilities">
-                            {{ capabilitiesLabel }}
-                        </Button>
-                    </header>
-                    <div class="app-drawer__body">
-                        <Empty v-if="!capabilityRows.length && !loadingCapabilities" :title="emptyTitle" :description="emptyDesc" />
-                        <Table v-else :columns="capabilityColumns" :rows="capabilityRows" :hasRowAction="false" :loading="loadingCapabilities" :loadingLabel="searchingLabel" />
-                    </div>
-                </section>
+        <aside class="app-sidebar" aria-label="Workspace">
+            <a href="/" class="app-sidebar__brand">
+                <span class="app-sidebar__mark" aria-hidden="true">
+                    OF
+                </span>
+                <span class="app-sidebar__name">
+                    OpenFinder
+                </span>
+            </a>
+            <nav class="app-sidebar__nav" aria-label="Navigation">
+                <a href="/" class="app-sidebar__nav-item" data-active="true" aria-current="page">
+                    Search
+                </a>
+            </nav>
+            <div class="app-sidebar__section">
+                <span class="app-sidebar__section-title">
+                    Panels
+                </span>
+                <button
+                    type="button"
+                    class="app-sidebar__action"
+                    :data-active="capabilitiesOpen ? 'true' : 'false'"
+                    :aria-expanded="capabilitiesOpen ? 'true' : 'false'"
+                    @click="toggleCapabilities"
+                >
+                    {{ capabilitiesTitle }}
+                </button>
             </div>
-        </AppShell>
+            <div class="app-sidebar__footer">
+                <button type="button" class="app-sidebar__action" @click="closeWindow">
+                    {{ closeLabel }}
+                </button>
+            </div>
+        </aside>
+
+        <main class="app-main">
+            <div role="search" class="app-toolbar">
+                <div class="app-toolbar__field">
+                    <Field
+                        :label="patternLabel"
+                        controlId="search-pattern"
+                        :value="pattern"
+                        :placeholder="patternPlaceholder"
+                        @input="onPatternInput"
+                    />
+                </div>
+                <div class="app-toolbar__field">
+                    <Field
+                        :label="pathFilterLabel"
+                        controlId="search-path"
+                        :value="pathFilter"
+                        :placeholder="pathFilterPlaceholder"
+                        @input="onPathFilterInput"
+                    />
+                </div>
+                <label class="app-select">
+                    <span class="app-select__label">
+                        {{ kindLabel }}
+                    </span>
+                    <select :value="kind" @change="onKindChange">
+                        <option value="">
+                            {{ kindAny }}
+                        </option>
+                        <option value="file">
+                            {{ kindFile }}
+                        </option>
+                        <option value="dir">
+                            {{ kindDir }}
+                        </option>
+                    </select>
+                </label>
+                <label class="app-select">
+                    <span class="app-select__label">
+                        {{ sortLabel }}
+                    </span>
+                    <select :value="sort" @change="onSortChange">
+                        <option value="name">
+                            {{ sortName }}
+                        </option>
+                        <option value="path">
+                            {{ sortPath }}
+                        </option>
+                        <option value="size">
+                            {{ sortSize }}
+                        </option>
+                        <option value="modified">
+                            {{ sortModified }}
+                        </option>
+                    </select>
+                </label>
+                <div class="app-toolbar__actions">
+                    <Button type="button" size="small" :loading="searching" :disabled="searching" @click="resetAndSearch">
+                        {{ searchLabel }}
+                    </Button>
+                    <Button type="button" variant="secondary" size="small" :loading="searching" :disabled="searching" @click="runWalk">
+                        {{ walkLabel }}
+                    </Button>
+                    <Button type="button" variant="secondary" size="small" :disabled="searching || offset === 0" @click="previousPage">
+                        {{ previousLabel }}
+                    </Button>
+                    <Button type="button" variant="secondary" size="small" :disabled="searching || !hasMore" @click="nextPage">
+                        {{ nextLabel }}
+                    </Button>
+                </div>
+            </div>
+
+            <div class="app-statusbar">
+                <span class="app-statusbar__stat">
+                    <span class="app-statusbar__label">
+                        {{ modeLabel }}
+                    </span>
+                    <span class="app-statusbar__value">
+                        {{ modeText }}
+                    </span>
+                </span>
+                <span class="app-statusbar__stat">
+                    <span class="app-statusbar__label">
+                        {{ totalLabel }}
+                    </span>
+                    <span class="app-statusbar__value">
+                        {{ totalText }}
+                    </span>
+                </span>
+                <span class="app-statusbar__stat">
+                    <span class="app-statusbar__label">
+                        {{ pageLabel }}
+                    </span>
+                    <span class="app-statusbar__value">
+                        {{ pageText }}
+                    </span>
+                </span>
+                <span v-if="status" role="status" class="app-statusbar__message">
+                    {{ status }}
+                </span>
+                <span v-if="error" role="alert" class="app-statusbar__error">
+                    {{ error }}
+                </span>
+            </div>
+
+            <div class="app-results">
+                <div v-if="!hitRows.length && !searching" class="app-results__empty">
+                    <Empty :title="emptyHitsTitle" :description="emptyHitsDesc" />
+                </div>
+                <Table v-else :columns="hitColumns" :rows="hitRows" :hasRowAction="false" :loading="searching" :loadingLabel="searchingLabel" />
+            </div>
+
+            <section v-if="capabilitiesOpen" class="app-drawer">
+                <header class="app-drawer__head">
+                    <span class="app-drawer__title">
+                        {{ capabilitiesTitle }}
+                    </span>
+                    <span class="app-drawer__meta">
+                        {{ capabilitiesDesc }}
+                    </span>
+                    <Button type="button" variant="secondary" size="small" :loading="loadingCapabilities" :disabled="loadingCapabilities" @click="loadCapabilities">
+                        {{ capabilitiesLabel }}
+                    </Button>
+                </header>
+                <div class="app-drawer__body">
+                    <Empty v-if="!capabilityRows.length && !loadingCapabilities" :title="emptyTitle" :description="emptyDesc" />
+                    <Table v-else :columns="capabilityColumns" :rows="capabilityRows" :hasRowAction="false" :loading="loadingCapabilities" :loadingLabel="searchingLabel" />
+                </div>
+            </section>
+        </main>
     </div>
 </template>
 
 <style>
 /*
- * Desktop workspace: the window is the frame. The shell header stays as the
- * top bar, the page owns every pixel below it, and only the result table
- * scrolls. No centered container, no max-width, no page-level gutter.
+ * Desktop shell: the window is the frame, not a document page. It is a single
+ * full-bleed flex row — fixed-width sidebar on the left, content column on the
+ * right — with no max-width, no auto margins, no page gutter, and no body
+ * margin. Every horizontal pixel belongs to either the sidebar or the content
+ * column; neither row nor shell adds outer padding or gap.
  */
 html,
 body {
+    width: 100%;
     height: 100%;
     margin: 0;
+    padding: 0;
     overflow: hidden;
 }
+#app,
 .app-root {
+    width: 100%;
     height: 100%;
 }
-.app-root .vmz-ui-app-shell {
-    height: 100%;
+.app-root {
+    display: flex;
+    align-items: stretch;
+    box-sizing: border-box;
+    height: 100vh;
+    overflow: hidden;
+    font-family: var(--vmz-font-sans, system-ui, sans-serif);
+    color: var(--vmz-text-ink, #111827);
+    background: var(--vmz-surface-page, #f5f6f8);
+}
+
+/* Sidebar: fixed width, always visible, never a centered card. */
+.app-sidebar {
+    display: flex;
+    flex: 0 0 var(--of-sidebar-width, 15rem);
+    flex-direction: column;
+    box-sizing: border-box;
+    width: var(--of-sidebar-width, 15rem);
+    min-width: 0;
     min-height: 0;
+    padding: 0;
+    border-right: 1px solid var(--vmz-line-subtle, #f0f1f3);
+    background: var(--vmz-surface-paper, #fff);
 }
-.app-root .vmz-ui-app-shell__header-inner {
+.app-sidebar__brand {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.625rem;
+    box-sizing: border-box;
+    height: 3rem;
+    padding: 0 0.875rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0f1f3);
+    color: var(--vmz-text-ink, #111827);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+}
+.app-sidebar__mark {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-action-primary-background, #2563eb);
+    color: #fff;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.app-sidebar__nav {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 0.125rem;
+    padding: 0.5rem 0.5rem 0;
+}
+.app-sidebar__nav-item {
+    display: flex;
+    align-items: center;
+    min-height: 2rem;
+    padding: 0 0.625rem;
+    border-radius: var(--vmz-radius-md, 6px);
+    color: var(--vmz-text-steel, #4b5563);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-decoration: none;
+}
+.app-sidebar__nav-item[data-active="true"] {
+    background: var(--vmz-surface-mist, #f7f8fa);
+    color: var(--vmz-action-primary-background, #2563eb);
+    font-weight: 600;
+}
+.app-sidebar__section {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 0.125rem;
+    padding: 0.75rem 0.5rem 0;
+}
+.app-sidebar__section-title {
+    padding: 0 0.625rem;
+    color: var(--vmz-text-tertiary, #6b7280);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    line-height: 1.6;
+    text-transform: uppercase;
+}
+.app-sidebar__action {
+    display: flex;
+    align-items: center;
     box-sizing: border-box;
     width: 100%;
-    padding: 0 var(--vmz-space-3, 0.75rem);
+    min-height: 2rem;
+    padding: 0 0.625rem;
+    border: 0;
+    border-radius: var(--vmz-radius-md, 6px);
+    background: transparent;
+    color: var(--vmz-text-steel, #4b5563);
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: left;
+    cursor: pointer;
 }
-.app-root .vmz-ui-app-shell__main {
+.app-sidebar__action:hover {
+    background: var(--vmz-surface-mist, #f7f8fa);
+}
+.app-sidebar__action[data-active="true"] {
+    background: var(--vmz-surface-mist, #f7f8fa);
+    color: var(--vmz-action-primary-background, #2563eb);
+    font-weight: 600;
+}
+.app-sidebar__action:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 3px var(--vmz-focus-ring, rgba(37, 99, 235, 0.35));
+}
+.app-sidebar__footer {
+    flex: 0 0 auto;
+    margin-top: auto;
+    padding: 0.5rem;
+    border-top: 1px solid var(--vmz-line-subtle, #f0f1f3);
+}
+
+/*
+ * Content column: takes every pixel the sidebar does not, and never grows past
+ * it. Rows are toolbar, status, results, optional drawer. Only the results
+ * table scrolls.
+ */
+.app-main {
+    display: grid;
     flex: 1 1 auto;
-    display: flex;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    box-sizing: border-box;
+    width: auto;
+    min-width: 0;
     min-height: 0;
-    width: 100%;
     max-width: none;
     margin: 0;
     padding: 0;
-    gap: 0;
-}
-.app-workspace {
-    display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    flex: 1 1 auto;
-    min-width: 0;
-    min-height: 0;
 }
 
-/* Toolbar: one horizontal band, controls wrap only when the window is too narrow. */
+/* Toolbar: one horizontal band, controls wrap only when the window is narrow. */
 .app-toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 20;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -409,8 +558,6 @@ body {
  * bridge implemented by `wae::webview`.
  */
 export default class IndexPage {
-    navItems = [{ id: "home", title: "Search", href: "/" }];
-
     patternLabel = "Pattern";
     patternPlaceholder = "*.dll";
     pathFilterLabel = "Path filter";
@@ -445,10 +592,7 @@ export default class IndexPage {
     capabilitiesTitle = "Capabilities";
     capabilitiesDesc = "Availability reported by crates/core. Unsupported or unfinished capabilities fail with structured codes.";
     capabilitiesLabel = "Refresh";
-    capabilitiesToggleText = "Capabilities";
     capabilitiesOpen = false;
-    expandLabel = "Show capabilities";
-    collapseLabel = "Hide capabilities";
     emptyTitle = "No capability report yet";
     emptyDesc = "Refresh to read the capability table.";
 
@@ -570,7 +714,6 @@ export default class IndexPage {
 
     toggleCapabilities() {
         this.capabilitiesOpen = !this.capabilitiesOpen;
-        this.capabilitiesToggleText = this.capabilitiesOpen ? this.collapseLabel : this.expandLabel;
         if (this.capabilitiesOpen && !this.capabilityRows.length && !this.loadingCapabilities) this.loadCapabilities();
     }
 
