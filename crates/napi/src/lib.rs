@@ -207,15 +207,42 @@ fn optional_i64(obj: JsValue, name: &str) -> Result<Option<i64>> {
     if value.is_undefined()? {
         return Ok(None);
     }
-    Ok(Some(value.as_i64()?))
+    // Keep the option name in the error instead of leaking a raw N-API status.
+    match value.as_i64() {
+        Ok(number) => Ok(Some(number)),
+        Err(_) => Err(invalid_argument(format!("`{name}` must be an integer"))),
+    }
+}
+
+fn invalid_argument(message: String) -> Error {
+    let payload = json!({ "code": "invalid_argument", "platform": platform_name(), "message": message });
+    Error::new(format!("wae.error:{payload}"))
 }
 
 fn optional_u64(obj: Option<JsValue>, name: &str) -> Result<Option<u64>> {
-    Ok(obj.and_then(|obj| optional_i64(obj, name).ok().flatten()).map(|value| value.max(0) as u64))
+    let Some(obj) = obj
+    else {
+        return Ok(None);
+    };
+    let Some(value) = optional_i64(obj, name)?
+    else {
+        return Ok(None);
+    };
+    // A wrong type or a negative number must not collapse into the default:
+    // that would silently widen a query or shrink a build budget.
+    u64::try_from(value).map(Some).map_err(|_| invalid_argument(format!("`{name}` must be a non-negative integer, got {value}")))
 }
 
 fn optional_usize(obj: Option<JsValue>, name: &str) -> Result<Option<usize>> {
-    Ok(obj.and_then(|obj| optional_i64(obj, name).ok().flatten()).map(|value| value.max(0) as usize))
+    let Some(obj) = obj
+    else {
+        return Ok(None);
+    };
+    let Some(value) = optional_i64(obj, name)?
+    else {
+        return Ok(None);
+    };
+    usize::try_from(value).map(Some).map_err(|_| invalid_argument(format!("`{name}` must be a non-negative integer, got {value}")))
 }
 
 fn optional_string(obj: Option<JsValue>, name: &str) -> Result<Option<String>> {
