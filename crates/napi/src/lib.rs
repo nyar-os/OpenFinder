@@ -337,6 +337,32 @@ fn version(ctx: CallContext) -> Result<JsValue> {
     }
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildInfo {
+    version: &'static str,
+    commit: &'static str,
+    built_at_unix: u64,
+    target: String,
+}
+
+#[function(js_name = "buildInfo")]
+fn build_info(ctx: CallContext) -> Result<JsValue> {
+    let result = audit::run(capability_ids::VERSION, Mode::DryRun, Value::Null, || {
+        let info = BuildInfo {
+            version: env!("CARGO_PKG_VERSION"),
+            commit: option_env!("WAE_APP_BUILD_COMMIT").unwrap_or("unknown"),
+            built_at_unix: option_env!("WAE_APP_BUILD_EPOCH").and_then(|epoch| epoch.parse().ok()).unwrap_or(0),
+            target: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+        };
+        Ok((info, Summary::new(1, "build info")))
+    });
+    match result {
+        Ok(info) => value_to_js(&ctx, &info),
+        Err(error) => Err(core_error(error)),
+    }
+}
+
 #[function]
 fn capabilities(ctx: CallContext) -> Result<JsValue> {
     let result = audit::run(capability_ids::CAPABILITIES, Mode::DryRun, Value::Null, || {
@@ -639,6 +665,7 @@ fn audit_query(ctx: CallContext) -> Result<JsValue> {
 
 register_module![
     version,
+    build_info,
     capabilities,
     default_index_dir_fn,
     inspect_volume_fn,
