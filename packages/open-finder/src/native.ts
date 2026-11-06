@@ -130,10 +130,11 @@ function reportAddonIdentity(resolved: string, bindings: NativeBindings): void {
         `commit=${build?.commit ?? 'unknown'}`,
         `builtAt=${build ? new Date(build.builtAtUnix * 1000).toISOString() : 'unknown'}`,
         `target=${build?.target ?? `${process.platform}-${process.arch}`}`,
+        ...(isWorkspace() ? [`head=${headCommit() ?? 'unknown'}`] : []),
     ];
     write(`native: ${fields.join(' ')}`);
 
-    for (const warning of stalenessWarnings(real, info, build)) {
+    for (const warning of stalenessWarnings(real, info)) {
         write(`native: warning=${warning}`);
     }
 
@@ -177,23 +178,19 @@ function addonFile(dir: string): string {
 }
 
 /**
- * Staleness warnings for a workspace checkout.
+ * Staleness warning for a workspace checkout.
  *
  * The CLI mtime alone is not a usable threshold: a full `pnpm run build` links
  * Rust first and compiles TypeScript after, so the CLI is always a few seconds
- * newer and the comparison would fire on every run. The checkout answers the
- * real question instead: does the addon come from this commit, and is it newer
- * than the native sources it was built from?
+ * newer and the comparison would fire after every clean build. The native
+ * sources answer the real question instead — did the crates change after this
+ * addon was linked? The embedded commit stays in the identity line next to
+ * `HEAD` so a foreign artifact is still visible without a false warning after
+ * TypeScript-only commits.
  */
-function stalenessWarnings(real: string, info: { mtime: Date } | null, build: BuildInfo | null): string[] {
+function stalenessWarnings(real: string, info: { mtime: Date } | null): string[] {
     if (!isWorkspace()) return [];
     const warnings: string[] = [];
-    const head = headCommit();
-    if (head && build && build.commit !== 'unknown' && build.commit.replace(/-dirty$/, '') !== head) {
-        warnings.push(
-            `addon_commit_mismatch addon=${real} addon_commit=${build.commit} head=${head} hint="run pnpm run build:napi"`,
-        );
-    }
     const newest = newestNativeSource();
     if (info && newest && info.mtime.getTime() < newest.mtime.getTime()) {
         warnings.push(
