@@ -149,7 +149,12 @@ function reportAddonIdentity(resolved: string, bindings: NativeBindings): void {
     }
 }
 
-/** Paths the loader could have used, in lookup order. */
+/**
+ * Paths the loader could have used, in lookup order.
+ *
+ * Missing candidates stay in the list: the diagnostic exists to show what was
+ * considered, including a hoisted copy that would shadow the workspace build.
+ */
 function addonCandidates(): string[] {
     const candidates: string[] = [];
     try {
@@ -158,31 +163,17 @@ function addonCandidates(): string[] {
     catch {
         // The module is absent; the workspace and hoisted paths still matter.
     }
-    for (const dir of [expectedArtifactDir(), path.join(WORKSPACE_ROOT, 'node_modules', '@wae', PLATFORM_DIR)]) {
-        const file = addonFileIn(dir);
-        if (file && !candidates.includes(file)) candidates.push(file);
+    for (const file of [addonFile(expectedArtifactDir()), addonFile(path.join(WORKSPACE_ROOT, 'node_modules', '@wae', PLATFORM_DIR))]) {
+        if (!candidates.includes(file)) candidates.push(file);
     }
     return candidates;
 }
 
-/** Resolve the `main` entry (or the first `.node` file) of a package directory. */
-function addonFileIn(dir: string): string | null {
-    try {
-        const manifest = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { main?: unknown };
-        if (typeof manifest.main === 'string' && manifest.main.length > 0) {
-            return path.join(dir, manifest.main);
-        }
-    }
-    catch {
-        // Fall through to the directory scan.
-    }
-    try {
-        const file = readdirSync(dir).find((name) => name.endsWith('.node'));
-        return file ? path.join(dir, file) : null;
-    }
-    catch {
-        return null;
-    }
+/** Addon file name inside a platform package. */
+function addonFile(dir: string): string {
+    const suffix = `${process.platform}-${process.arch}`;
+    const app = PLATFORM_DIR.endsWith(`-${suffix}`) ? PLATFORM_DIR.slice(0, -(suffix.length + 1)) : PLATFORM_DIR;
+    return path.join(dir, `${app}.${suffix}.node`);
 }
 
 /**
