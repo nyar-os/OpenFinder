@@ -47,7 +47,7 @@ export interface NativeBindings {
     installApply(options?: { noShortcut?: boolean; resetConfig?: boolean }): unknown;
     uninstallPlan(options?: { keepConfig?: boolean }): unknown;
     uninstallApply(options?: { keepConfig?: boolean }): unknown;
-    openGui(options?: { contentDir?: string; title?: string }): unknown;
+    openGui(options?: { contentDir?: string; title?: string; secondLaunch?: 'focus' | 'reject' }): unknown;
     pumpEvents(): boolean;
     closeGui(): boolean;
     isGuiOpen(): boolean;

@@ -5,6 +5,9 @@
  * errors into `AppError`. The CLI, skills, and GUI consume this module so they
  * share one error contract.
  */
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { AppError, fromNativeError } from './errors.js';
 import { loadNative } from './native.js';
 
@@ -184,6 +187,11 @@ export interface UninstallOptions {
 export interface GuiOptions {
     contentDir?: string;
     title?: string;
+    /**
+     * What a second open request does in single-window mode. Defaults to the
+     * `window.policy.secondLaunch` value in `wae-runtime.json`, or `focus`.
+     */
+    secondLaunch?: 'focus' | 'reject';
 }
 
 /** Caller identity used by the shared audit facility. */
@@ -295,9 +303,31 @@ export function auditQuery(filter: AuditQuery = {}): Record<string, unknown>[] {
     return invoke(() => JSON.parse(json) as Record<string, unknown>[]);
 }
 
+/**
+ * Read `window.policy.secondLaunch` from the contract `wae build` writes next
+ * to the CLI entry. A missing or unreadable contract means the default policy:
+ * focus the existing window instead of opening a second one.
+ */
+function secondLaunchFromContract(): 'focus' | 'reject' {
+    try {
+        const url = new URL('./wae-runtime.json', import.meta.url);
+        const value: unknown = JSON.parse(fs.readFileSync(fileURLToPath(url), 'utf8'));
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'focus';
+        const window = (value as { window?: unknown }).window;
+        if (typeof window !== 'object' || window === null) return 'focus';
+        const policy = (window as { policy?: unknown }).policy;
+        if (typeof policy !== 'object' || policy === null) return 'focus';
+        return (policy as { secondLaunch?: unknown }).secondLaunch === 'reject' ? 'reject' : 'focus';
+    }
+    catch {
+        return 'focus';
+    }
+}
+
 /** Open the GUI window. */
 export function openGui(options: GuiOptions = {}): { backend: string } {
-    return invoke(() => loadNative().openGui(options) as { backend: string });
+    const secondLaunch = options.secondLaunch ?? secondLaunchFromContract();
+    return invoke(() => loadNative().openGui({ ...options, secondLaunch }) as { backend: string });
 }
 
 /** Pump one GUI event batch. */

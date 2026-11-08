@@ -18,7 +18,7 @@ serde_json = "1"
 thiserror = "2"
 regex = "1"
 # Cross-repo git dependencies must pin the full 40-character revision.
-wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "a2cb0056482b5b113a82b06367ef4369ec141c0d" }
+wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "66f5d003fec85e28503968fd0a6a271beef0f389" }
 open-finder-core = { path = "crates/core", version = "0.0.0" }
 
 [profile.release]

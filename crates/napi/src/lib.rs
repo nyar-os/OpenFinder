@@ -610,23 +610,52 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
     let arg = object_arg(&ctx)?;
     let content_dir = resolve_gui_dir(optional_string(arg, "contentDir")?)?;
     let title = optional_string(arg, "title")?.unwrap_or_else(|| APP_TITLE.to_string());
+    let second_launch = match optional_string(arg, "secondLaunch")? {
+        Some(value) if value == "focus" || value == "reject" => value,
+        Some(value) => {
+            return Err(core_error(CoreError::policy(
+                "window_config_invalid",
+                format!("`secondLaunch` must be `focus` or `reject`, got `{value}`"),
+            )));
+        }
+        None => "focus".to_string(),
+    };
     let params = json!({ "contentDir": &content_dir, "title": &title });
     let log_path = ensure_gui_log();
     if log_path.is_none() {
         eprintln!("[open-finder] gui.log unavailable: host diagnostics stay on stderr only");
     }
 
+    let mut backend: Option<String> = None;
     let result = audit::run(capability_ids::GUI_OPEN, Mode::Execute, params, || {
-        let options = OpenOptions::from_content_dir(&content_dir, &title);
-        let host = open(options, Box::new(HostIpc)).map_err(webview_error)?;
-        let backend = host.backend_name().to_string();
         GUI.with(|slot| {
-            *slot.borrow_mut() = Some(host);
-        });
-        Ok((backend, Summary::new(1, "gui window opened")))
+            let mut slot = slot.borrow_mut();
+            if let Some(host) = slot.as_mut()
+                && host.is_alive()
+            {
+                if second_launch == "reject" {
+                    return Err(CoreError::policy(
+                        "window_second_launch_rejected",
+                        "a window is already open and `window.secondLaunch` is `reject`",
+                    ));
+                }
+                host.focus().map_err(webview_error)?;
+                backend = Some(host.backend_name().to_string());
+                return Ok(());
+            }
+            // A host left in the slot without a live window is stale.
+            *slot = None;
+            let options = OpenOptions::from_content_dir(&content_dir, &title);
+            let host = open(options, Box::new(HostIpc)).map_err(webview_error)?;
+            backend = Some(host.backend_name().to_string());
+            *slot = Some(host);
+            Ok(())
+        })?;
+        Ok(((), Summary::new(1, "gui window opened or focused")))
     });
     match result {
-        Ok(backend) => {
+        Ok(()) => {
+            let backend = backend.unwrap_or_default();
             let object = ctx.env().object()?;
             object.set_named("backend", ctx.env().string(&backend)?)?;
             Ok(object)

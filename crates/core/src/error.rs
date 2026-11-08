@@ -60,6 +60,14 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    /// A request refused by a declared policy, with a stable script-facing code.
+    #[error("{code}: {detail}")]
+    Policy {
+        /// Stable code, for example `window_second_launch_rejected`.
+        code: &'static str,
+        /// Human-readable detail.
+        detail: String,
+    },
     /// Other domain failure.
     #[error("{0}")]
     Message(String),
@@ -81,6 +89,11 @@ impl Error {
         Self::Message(message.into())
     }
 
+    /// Construct a policy refusal with a stable code.
+    pub fn policy(code: &'static str, detail: impl Into<String>) -> Self {
+        Self::Policy { code, detail: detail.into() }
+    }
+
     /// Machine-readable payload shared by the N-API boundary and the CLI.
     pub fn payload(&self) -> ErrorPayload {
         ErrorPayload {
@@ -100,6 +113,7 @@ impl Error {
         match self {
             Self::Capability { state, .. } => state.code(),
             Self::Io { .. } => "io_error",
+            Self::Policy { code, .. } => code,
             Self::Message(_) => "message",
         }
     }
