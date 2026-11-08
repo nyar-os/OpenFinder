@@ -1,804 +1,1414 @@
 <template>
-    <div class="app-root" data-app="open-finder">
-        <aside class="app-sidebar" aria-label="Workspace">
-            <a href="/" class="app-sidebar__brand">
-                <span class="app-sidebar__mark" aria-hidden="true">
-                    OF
-                </span>
-                <span class="app-sidebar__name">
-                    OpenFinder
-                </span>
-            </a>
-            <nav class="app-sidebar__nav" aria-label="Navigation">
-                <a href="/" class="app-sidebar__nav-item" data-active="true" aria-current="page">
-                    Search
-                </a>
-            </nav>
-            <div class="app-sidebar__section">
-                <span class="app-sidebar__section-title">
-                    Panels
-                </span>
+    <div data-open-finder="root" class="of-root">
+        <header class="of-bar">
+            <div class="of-search">
+                <span class="of-search__mark" aria-hidden="true">/</span>
+                <label class="of-sr" for="of-query">Search</label>
+                <input
+                    id="of-query"
+                    class="of-search__input"
+                    type="text"
+                    spellcheck="false"
+                    autocomplete="off"
+                    :value="pattern"
+                    :placeholder="searchPlaceholder"
+                    @input="onQueryInput"
+                    @keydown="onQueryKey"
+                />
+                <button
+                    v-if="pattern"
+                    type="button"
+                    class="of-search__clear"
+                    aria-label="Clear search"
+                    @click="clearQuery"
+                >
+                    ×
+                </button>
+            </div>
+            <div class="of-mode" role="group" aria-label="Search mode">
                 <button
                     type="button"
-                    class="app-sidebar__action"
-                    :data-active="capabilitiesOpen ? 'true' : 'false'"
-                    :aria-expanded="capabilitiesOpen ? 'true' : 'false'"
-                    @click="toggleCapabilities"
+                    class="of-mode__item"
+                    :data-active="mode === 'index' ? 'true' : 'false'"
+                    data-mode="index"
+                    title="Search the persisted index (I)"
+                    @click="setMode"
                 >
-                    {{ capabilitiesTitle }}
+                    Index
+                </button>
+                <button
+                    type="button"
+                    class="of-mode__item"
+                    :data-active="mode === 'walk' ? 'true' : 'false'"
+                    data-mode="walk"
+                    title="Walk a folder without an index (W)"
+                    @click="setMode"
+                >
+                    Walk
                 </button>
             </div>
-            <div class="app-sidebar__footer">
-                <button type="button" class="app-sidebar__action" @click="closeWindow">
-                    {{ closeLabel }}
-                </button>
-            </div>
-        </aside>
+            <button
+                type="button"
+                class="of-btn"
+                :data-active="advancedOpen ? 'true' : 'false'"
+                :aria-expanded="advancedOpen ? 'true' : 'false'"
+                title="Advanced conditions (Ctrl+Shift+F)"
+                @click="toggleAdvanced"
+            >
+                Filters<span v-if="activeFilterCount" class="of-btn__count">{{ activeFilterCount }}</span>
+            </button>
+            <button type="button" class="of-btn of-btn--primary" :disabled="loading" @click="runSearch">
+                {{ loading ? "Searching…" : "Search" }}
+            </button>
+        </header>
 
-        <main class="app-main">
-            <div role="search" class="app-toolbar">
-                <div class="app-toolbar__field">
-                    <Field
-                        :label="patternLabel"
-                        controlId="search-pattern"
-                        :value="pattern"
-                        :placeholder="patternPlaceholder"
-                        @input="onPatternInput"
-                    />
-                </div>
-                <div class="app-toolbar__field">
-                    <Field
-                        :label="pathFilterLabel"
-                        controlId="search-path"
-                        :value="pathFilter"
-                        :placeholder="pathFilterPlaceholder"
-                        @input="onPathFilterInput"
-                    />
-                </div>
-                <label class="app-select">
-                    <span class="app-select__label">
-                        {{ kindLabel }}
-                    </span>
-                    <select :value="kind" @change="onKindChange">
-                        <option value="">
-                            {{ kindAny }}
-                        </option>
-                        <option value="file">
-                            {{ kindFile }}
-                        </option>
-                        <option value="dir">
-                            {{ kindDir }}
-                        </option>
-                    </select>
-                </label>
-                <label class="app-select">
-                    <span class="app-select__label">
-                        {{ sortLabel }}
-                    </span>
-                    <select :value="sort" @change="onSortChange">
-                        <option value="name">
-                            {{ sortName }}
-                        </option>
-                        <option value="path">
-                            {{ sortPath }}
-                        </option>
-                        <option value="size">
-                            {{ sortSize }}
-                        </option>
-                        <option value="modified">
-                            {{ sortModified }}
-                        </option>
-                    </select>
-                </label>
-                <div class="app-toolbar__actions">
-                    <Button type="button" size="small" :loading="searching" :disabled="searching" @click="resetAndSearch">
-                        {{ searchLabel }}
-                    </Button>
-                    <Button type="button" variant="secondary" size="small" :loading="searching" :disabled="searching" @click="runWalk">
-                        {{ walkLabel }}
-                    </Button>
-                    <Button type="button" variant="secondary" size="small" :disabled="searching || offset === 0" @click="previousPage">
-                        {{ previousLabel }}
-                    </Button>
-                    <Button type="button" variant="secondary" size="small" :disabled="searching || !hasMore" @click="nextPage">
-                        {{ nextLabel }}
-                    </Button>
-                </div>
+        <section v-if="advancedOpen" class="of-advanced" aria-label="Advanced conditions">
+            <div class="of-field">
+                <label for="of-root">Folder to walk</label>
+                <input id="of-root" type="text" spellcheck="false" :value="rootPath" placeholder="C:\\" @input="onRootInput" />
             </div>
-
-            <div class="app-statusbar">
-                <span class="app-statusbar__stat">
-                    <span class="app-statusbar__label">
-                        {{ modeLabel }}
-                    </span>
-                    <span class="app-statusbar__value">
-                        {{ modeText }}
-                    </span>
-                </span>
-                <span class="app-statusbar__stat">
-                    <span class="app-statusbar__label">
-                        {{ totalLabel }}
-                    </span>
-                    <span class="app-statusbar__value">
-                        {{ totalText }}
-                    </span>
-                </span>
-                <span class="app-statusbar__stat">
-                    <span class="app-statusbar__label">
-                        {{ pageLabel }}
-                    </span>
-                    <span class="app-statusbar__value">
-                        {{ pageText }}
-                    </span>
-                </span>
-                <span v-if="status" role="status" class="app-statusbar__message">
-                    {{ status }}
-                </span>
-                <span v-if="error" role="alert" class="app-statusbar__error">
-                    {{ error }}
-                </span>
+            <div class="of-field">
+                <label for="of-kind">Kind</label>
+                <select id="of-kind" :value="kind" @change="onKindChange">
+                    <option value="any">Any</option>
+                    <option value="file">File</option>
+                    <option value="dir">Folder</option>
+                </select>
             </div>
-
-            <div class="app-results">
-                <div v-if="!hitRows.length && !searching" class="app-results__empty">
-                    <Empty :title="emptyHitsTitle" :description="emptyHitsDesc" />
-                </div>
-                <Table v-else :columns="hitColumns" :rows="hitRows" :hasRowAction="false" :loading="searching" :loadingLabel="searchingLabel" />
+            <div class="of-field">
+                <label for="of-min">Min size (MB)</label>
+                <input id="of-min" type="number" min="0" step="0.1" :value="minSizeMb" @input="onMinSizeInput" />
             </div>
+            <div class="of-field">
+                <label for="of-max">Max size (MB)</label>
+                <input id="of-max" type="number" min="0" step="0.1" :value="maxSizeMb" @input="onMaxSizeInput" />
+            </div>
+            <div class="of-field">
+                <label for="of-after">Modified after</label>
+                <input id="of-after" type="datetime-local" :value="modifiedAfter" @input="onAfterInput" />
+            </div>
+            <div class="of-field">
+                <label for="of-before">Modified before</label>
+                <input id="of-before" type="datetime-local" :value="modifiedBefore" @input="onBeforeInput" />
+            </div>
+            <div class="of-field">
+                <label for="of-sort">Sort</label>
+                <select id="of-sort" :value="sort" @change="onSortChange">
+                    <option value="name">Name</option>
+                    <option value="path">Path</option>
+                    <option value="size">Size</option>
+                    <option value="modified">Modified</option>
+                </select>
+            </div>
+            <div class="of-field of-field--checks">
+                <label><input type="checkbox" :checked="regex" @change="onRegexChange" /> Regular expression</label>
+                <label><input type="checkbox" :checked="matchPath" @change="onMatchPathChange" /> Match full path</label>
+                <label><input type="checkbox" :checked="descending" @change="onDescendingChange" /> Descending</label>
+                <span class="of-field__spacer"></span>
+                <button type="button" class="of-btn" @click="resetFilters">Reset</button>
+                <button type="button" class="of-btn of-btn--primary" :disabled="loading" @click="runSearch">Apply</button>
+            </div>
+        </section>
 
-            <section v-if="capabilitiesOpen" class="app-drawer">
-                <header class="app-drawer__head">
-                    <span class="app-drawer__title">
-                        {{ capabilitiesTitle }}
-                    </span>
-                    <span class="app-drawer__meta">
-                        {{ capabilitiesDesc }}
-                    </span>
-                    <Button type="button" variant="secondary" size="small" :loading="loadingCapabilities" :disabled="loadingCapabilities" @click="loadCapabilities">
-                        {{ capabilitiesLabel }}
-                    </Button>
-                </header>
-                <div class="app-drawer__body">
-                    <Empty v-if="!capabilityRows.length && !loadingCapabilities" :title="emptyTitle" :description="emptyDesc" />
-                    <Table v-else :columns="capabilityColumns" :rows="capabilityRows" :hasRowAction="false" :loading="loadingCapabilities" :loadingLabel="searchingLabel" />
-                </div>
-            </section>
+        <div v-if="activeFilters.length" class="of-chips" aria-label="Active conditions">
+            <button
+                v-for="chip in activeFilters"
+                :key="chip.id"
+                type="button"
+                class="of-chip"
+                :data-chip="chip.id"
+                :title="'Remove ' + chip.label"
+                @click="removeFilter"
+            >
+                {{ chip.label }}<span class="of-chip__x" aria-hidden="true">×</span>
+            </button>
+        </div>
+
+        <div v-if="error" class="of-banner" role="alert">
+            <span class="of-banner__text">{{ error }}</span>
+            <button type="button" class="of-btn" @click="runSearch">Retry</button>
+        </div>
+
+        <main class="of-results" aria-label="Search results">
+            <table class="of-table">
+                <colgroup>
+                    <col class="of-col-name" />
+                    <col class="of-col-path" />
+                    <col class="of-col-size" />
+                    <col class="of-col-time" />
+                    <col class="of-col-kind" />
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Path</th>
+                        <th scope="col" class="of-num">Size</th>
+                        <th scope="col">Modified</th>
+                        <th scope="col">Type</th>
+                    </tr>
+                </thead>
+                <tbody
+                    tabindex="0"
+                    aria-label="Results"
+                    @keydown="onTableKey"
+                    @contextmenu.prevent="openRowMenu"
+                >
+                    <tr
+                        v-for="row in rows"
+                        :key="row.key"
+                        :data-index="row.index"
+                        :data-focused="row.index === focusedIndex ? 'true' : 'false'"
+                        @click="focusRow"
+                    >
+                        <td class="of-name" :title="row.name">{{ row.name }}</td>
+                        <td class="of-path" :title="row.path">{{ row.dirLabel }}</td>
+                        <td class="of-num">{{ row.sizeText }}</td>
+                        <td>{{ row.modifiedText }}</td>
+                        <td class="of-kind">{{ row.typeText }}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div v-if="!rows.length && !loading && !error" class="of-empty">
+                <div class="of-empty__title">{{ emptyTitle }}</div>
+                <p class="of-empty__desc">{{ emptyDesc }}</p>
+            </div>
+            <div v-if="loading && !rows.length" class="of-loading" role="status">
+                <span class="of-spinner" aria-hidden="true"></span>{{ loadingText }}
+            </div>
         </main>
+
+        <footer class="of-status" role="status">
+            <span class="of-status__state">{{ statusMessage }}</span>
+            <span class="of-status__grow"></span>
+            <span>{{ countText }}</span>
+            <span>{{ timingText }}</span>
+            <span>{{ modeText }}</span>
+            <span :class="truncated ? 'of-status__warn' : ''">{{ indexText }}</span>
+            <button type="button" class="of-status__host" @click="toggleCapabilities">Host</button>
+        </footer>
+
+        <div v-if="menuOpen" class="of-menu" :style="menuStyle" role="menu">
+            <button type="button" class="of-menu__item" role="menuitem" aria-disabled="true" :title="openReason" disabled>
+                Open
+            </button>
+            <button type="button" class="of-menu__item" role="menuitem" aria-disabled="true" :title="openReason" disabled>
+                Reveal in Explorer
+            </button>
+            <button type="button" class="of-menu__item" role="menuitem" @click="copyFocusedPath">
+                Copy path
+            </button>
+            <button type="button" class="of-menu__item" role="menuitem" @click="copyFocusedName">
+                Copy name
+            </button>
+            <div class="of-menu__note">{{ openReason }}</div>
+        </div>
+
+        <section v-if="capabilitiesOpen" class="of-caps" aria-label="Host capabilities">
+            <header class="of-caps__head">
+                <span>Host capabilities</span>
+                <button type="button" class="of-btn" aria-label="Close capabilities" @click="toggleCapabilities">×</button>
+            </header>
+            <ul class="of-caps__list">
+                <li v-for="row in capabilityRows" :key="row.id">
+                    <span>{{ row.title }}</span>
+                    <span>{{ row.state }}</span>
+                    <span class="of-caps__detail">{{ row.detail }}</span>
+                </li>
+            </ul>
+        </section>
     </div>
 </template>
 
 <style>
-/*
- * Desktop shell: the window is the frame, not a document page. It is a single
- * full-bleed flex row — fixed-width sidebar on the left, content column on the
- * right — with no max-width, no auto margins, no page gutter, and no body
- * margin. Every horizontal pixel belongs to either the sidebar or the content
- * column; neither row nor shell adds outer padding or gap.
- */
 html,
 body {
-    width: 100%;
     height: 100%;
     margin: 0;
-    padding: 0;
     overflow: hidden;
 }
-#app,
-.app-root {
-    width: 100%;
-    height: 100%;
-}
-.app-root {
+
+.of-root {
+    --of-bar-height: 2.5rem;
+    --of-status-height: 1.5rem;
     display: flex;
-    align-items: stretch;
-    box-sizing: border-box;
+    flex-direction: column;
+    width: 100%;
     height: 100vh;
+    min-height: 0;
     overflow: hidden;
+    background: var(--vmz-surface-paper, #ffffff);
+    color: var(--vmz-text-ink, #1b1830);
     font-family: var(--vmz-font-sans, system-ui, sans-serif);
-    color: var(--vmz-text-ink, #111827);
-    background: var(--vmz-surface-page, #f5f6f8);
+    font-size: 0.8125rem;
 }
 
-/* Sidebar: fixed width, always visible, never a centered card. */
-.app-sidebar {
-    display: flex;
-    flex: 0 0 var(--of-sidebar-width, 15rem);
-    flex-direction: column;
-    box-sizing: border-box;
-    width: var(--of-sidebar-width, 15rem);
-    min-width: 0;
-    min-height: 0;
-    padding: 0;
-    border-right: 1px solid var(--vmz-line-subtle, #f0f1f3);
-    background: var(--vmz-surface-paper, #fff);
-}
-.app-sidebar__brand {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 0.625rem;
-    box-sizing: border-box;
-    height: 3rem;
-    padding: 0 0.875rem;
-    border-bottom: 1px solid var(--vmz-line-subtle, #f0f1f3);
-    color: var(--vmz-text-ink, #111827);
-    font-size: 0.9375rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    text-decoration: none;
-}
-.app-sidebar__mark {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: var(--vmz-radius-md, 6px);
-    background: var(--vmz-action-primary-background, #2563eb);
-    color: #fff;
-    font-size: 0.625rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-}
-.app-sidebar__nav {
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: column;
-    gap: 0.125rem;
-    padding: 0.5rem 0.5rem 0;
-}
-.app-sidebar__nav-item {
-    display: flex;
-    align-items: center;
-    min-height: 2rem;
-    padding: 0 0.625rem;
-    border-radius: var(--vmz-radius-md, 6px);
-    color: var(--vmz-text-steel, #4b5563);
-    font-size: 0.875rem;
-    line-height: 1.5;
-    text-decoration: none;
-}
-.app-sidebar__nav-item[data-active="true"] {
-    background: var(--vmz-surface-mist, #f7f8fa);
-    color: var(--vmz-action-primary-background, #2563eb);
-    font-weight: 600;
-}
-.app-sidebar__section {
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: column;
-    gap: 0.125rem;
-    padding: 0.75rem 0.5rem 0;
-}
-.app-sidebar__section-title {
-    padding: 0 0.625rem;
-    color: var(--vmz-text-tertiary, #6b7280);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    line-height: 1.6;
-    text-transform: uppercase;
-}
-.app-sidebar__action {
-    display: flex;
-    align-items: center;
-    box-sizing: border-box;
-    width: 100%;
-    min-height: 2rem;
-    padding: 0 0.625rem;
-    border: 0;
-    border-radius: var(--vmz-radius-md, 6px);
-    background: transparent;
-    color: var(--vmz-text-steel, #4b5563);
-    font: inherit;
-    font-size: 0.875rem;
-    line-height: 1.5;
-    text-align: left;
-    cursor: pointer;
-}
-.app-sidebar__action:hover {
-    background: var(--vmz-surface-mist, #f7f8fa);
-}
-.app-sidebar__action[data-active="true"] {
-    background: var(--vmz-surface-mist, #f7f8fa);
-    color: var(--vmz-action-primary-background, #2563eb);
-    font-weight: 600;
-}
-.app-sidebar__action:focus-visible {
-    outline: 0;
-    box-shadow: 0 0 0 3px var(--vmz-focus-ring, rgba(37, 99, 235, 0.35));
-}
-.app-sidebar__footer {
-    flex: 0 0 auto;
-    margin-top: auto;
-    padding: 0.5rem;
-    border-top: 1px solid var(--vmz-line-subtle, #f0f1f3);
+.of-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
 }
 
-/*
- * Content column: takes every pixel the sidebar does not, and never grows past
- * it. Rows are toolbar, status, results, optional drawer. Only the results
- * table scrolls.
- */
-.app-main {
-    display: grid;
+.of-bar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: var(--of-bar-height);
+    padding: 0.375rem 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+}
+
+.of-search {
+    display: flex;
     flex: 1 1 auto;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    box-sizing: border-box;
-    width: auto;
-    min-width: 0;
-    min-height: 0;
-    max-width: none;
-    margin: 0;
-    padding: 0;
+    align-items: center;
+    min-width: 10rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
 }
 
-/* Toolbar: one horizontal band, controls wrap only when the window is narrow. */
-.app-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--vmz-space-2, 0.5rem);
-    padding: var(--vmz-space-2, 0.5rem) var(--vmz-space-3, 0.75rem);
-    border-bottom: 1px solid var(--vmz-line-subtle, #e5e6eb);
-    background: var(--vmz-surface-paper, #fff);
+.of-search:focus-within {
+    border-color: var(--vmz-action-primary-background, #6e56cf);
+    box-shadow: 0 0 0 2px var(--vmz-focus-ring, rgba(110, 86, 207, 0.18));
 }
-.app-toolbar__field {
-    flex: 1 1 11rem;
-    min-width: 9rem;
-}
-.app-toolbar .vmz-ui-field {
-    flex-direction: row;
-    align-items: center;
-    max-width: none;
-    gap: var(--vmz-space-2, 0.5rem);
-}
-.app-toolbar .vmz-ui-field__label {
+
+.of-search__mark {
+    display: grid;
     flex: 0 0 auto;
-    font-size: 0.8125rem;
-    line-height: 1.4;
-    color: var(--vmz-text-tertiary, #6b7280);
+    place-items: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-right: 0.375rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: 3px;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.6875rem;
 }
-.app-toolbar .vmz-ui-field__control {
-    min-height: 2rem;
-}
-.app-select {
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: row;
-    align-items: center;
-    gap: var(--vmz-space-2, 0.5rem);
-}
-.app-select__label {
-    font-size: 0.8125rem;
-    line-height: 1.4;
-    color: var(--vmz-text-tertiary, #6b7280);
-}
-.app-select select {
-    box-sizing: border-box;
-    min-height: 2rem;
-    padding: 0 0.5rem;
-    border: 1px solid var(--vmz-line-default, #e5e6eb);
-    border-radius: var(--vmz-radius-md, 6px);
-    background: var(--vmz-surface-paper, #fff);
+
+.of-search__input {
+    flex: 1 1 auto;
+    min-width: 4rem;
+    height: 100%;
+    border: 0;
+    background: transparent;
     color: inherit;
     font: inherit;
     font-size: 0.875rem;
+    outline: none;
 }
-.app-toolbar__actions {
+
+.of-search__clear {
+    flex: 0 0 auto;
+    width: 1.375rem;
+    height: 1.375rem;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font: inherit;
+    cursor: pointer;
+}
+
+.of-search__clear:hover {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.of-mode {
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 2rem;
+    padding: 2px;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
+}
+
+.of-mode__item {
+    padding: 0 0.5rem;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font: inherit;
+    cursor: pointer;
+}
+
+.of-mode__item[data-active="true"] {
+    background: var(--vmz-action-primary-background, #6e56cf);
+    color: #ffffff;
+}
+
+.of-btn {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.25rem;
+    height: 2rem;
+    padding: 0 0.625rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.of-btn:hover:not(:disabled) {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.of-btn:disabled {
+    color: var(--vmz-text-muted, #b3aec6);
+    cursor: default;
+}
+
+.of-btn[data-active="true"] {
+    border-color: var(--vmz-action-primary-background, #6e56cf);
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.of-btn--primary {
+    border-color: var(--vmz-action-primary-background, #6e56cf);
+    background: var(--vmz-action-primary-background, #6e56cf);
+    color: var(--vmz-action-primary-foreground, #ffffff);
+}
+
+.of-btn--primary:hover:not(:disabled) {
+    background: var(--vmz-action-primary-hover, #5a45b5);
+}
+
+.of-btn__count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.125rem;
+    height: 1.125rem;
+    padding: 0 0.1875rem;
+    border-radius: 0.5625rem;
+    background: var(--vmz-action-primary-background, #6e56cf);
+    color: #ffffff;
+    font-size: 0.6875rem;
+}
+
+.of-advanced {
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.5rem 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-page, #fbfaff);
+}
+
+.of-field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.of-field > label {
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.6875rem;
+}
+
+.of-field input,
+.of-field select {
+    width: 100%;
+    min-width: 0;
+    height: 1.75rem;
+    padding: 0 0.375rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-sm, 4px);
+    background: var(--vmz-surface-paper, #ffffff);
+    color: inherit;
+    font: inherit;
+    font-size: 0.75rem;
+}
+
+.of-field--checks {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem 1.25rem;
+    padding-top: 0.25rem;
+}
+
+.of-field--checks label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--vmz-text-ink, #1b1830);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.of-field__spacer {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.of-chips {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    background: var(--vmz-surface-paper, #ffffff);
+}
+
+.of-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.375rem;
+    padding: 0 0.375rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: 0.6875rem;
+    background: var(--vmz-surface-mist, #f8f7fc);
+    color: var(--vmz-text-ink, #1b1830);
+    font: inherit;
+    font-size: 0.71875rem;
+    cursor: pointer;
+}
+
+.of-chip:hover {
+    border-color: var(--vmz-action-primary-background, #6e56cf);
+}
+
+.of-chip__x {
+    color: var(--vmz-text-tertiary, #6b6785);
+}
+
+.of-banner {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: var(--vmz-space-2, 0.5rem);
-    margin-left: auto;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-bottom: 1px solid var(--vmz-status-danger-border, #f0c4c1);
+    background: var(--vmz-status-danger-background, #fff3f2);
+    color: var(--vmz-status-danger-foreground, #b42318);
+    font-size: 0.75rem;
 }
 
-/* Status bar: counts, paging text, timing, and failures stay out of the way. */
-.app-statusbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--vmz-space-4, 1rem);
-    min-height: 1.75rem;
-    padding: 0 var(--vmz-space-3, 0.75rem);
-    border-bottom: 1px solid var(--vmz-line-subtle, #e5e6eb);
-    background: var(--vmz-surface-mist, #f7f8fa);
-    font-size: 0.75rem;
-    line-height: 1.5;
-    color: var(--vmz-text-tertiary, #6b7280);
-    white-space: nowrap;
-    overflow: hidden;
-}
-.app-statusbar__stat {
-    display: inline-flex;
-    gap: 0.35rem;
-}
-.app-statusbar__value {
-    color: var(--vmz-text-ink, #111827);
-    font-variant-numeric: tabular-nums;
-}
-.app-statusbar__message {
+.of-banner__text {
+    flex: 1 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.app-statusbar__error {
-    color: var(--vmz-status-danger-foreground, #b42318);
+
+.of-results {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    background: var(--vmz-surface-paper, #ffffff);
+}
+
+.of-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 0.75rem;
+}
+
+.of-col-name {
+    width: 30%;
+}
+
+.of-col-size {
+    width: 5.5rem;
+}
+
+.of-col-time {
+    width: 8.5rem;
+}
+
+.of-col-kind {
+    width: 4.5rem;
+}
+
+.of-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 1.625rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.of-table tbody {
+    outline: none;
+}
+
+.of-table tbody tr {
+    height: 1.625rem;
+    cursor: default;
+}
+
+.of-table tbody tr:hover {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.of-table tbody tr[data-focused="true"] {
+    background: var(--vmz-action-primary-background, #6e56cf);
+    color: #ffffff;
+}
+
+.of-table tbody tr[data-focused="true"] .of-path,
+.of-table tbody tr[data-focused="true"] .of-kind {
+    color: #ffffff;
+}
+
+.of-table td {
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.of-table th.of-num,
+.of-table td.of-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.of-name {
     font-weight: 500;
 }
 
-/* Results: the table owns the remaining height, its header stays pinned. */
-.app-results {
-    display: flex;
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-    background: var(--vmz-surface-paper, #fff);
-}
-.app-results > .vmz-ui-table-wrap {
-    flex: 1 1 auto;
-    height: 100%;
-    min-height: 0;
-    overflow: auto;
-    border: 0;
-    border-radius: 0;
-}
-.app-results__empty {
-    display: grid;
-    place-items: center;
-    width: 100%;
-    height: 100%;
-}
-.app-results .vmz-ui-table {
-    width: 100%;
-    min-width: 0;
-    table-layout: auto;
-    border-collapse: separate;
-    border-spacing: 0;
-}
-.app-results .vmz-ui-table th,
-.app-results .vmz-ui-table td {
-    box-sizing: border-box;
-    /* A cell height is a floor: wrapped paths make the row grow. */
-    height: 2.25rem;
-    padding: 0.125rem 0.75rem;
-}
-.app-results .vmz-ui-table th {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-}
-/*
- * Column widths: the four narrow columns are sized to their longest real value
- * and `path` keeps no width, so the automatic table layout spends everything
- * that is left on it. `table-layout: fixed` cannot express that: it hands
- * unclaimed width to the columns that already have one, which widened FRN and
- * Modified while the path column stayed cramped, and a `calc()` remainder made
- * Chrome shrink the whole table instead.
- */
-.app-results .vmz-ui-table th[data-vmz-col="kind"] {
-    width: 4.5rem;
-}
-.app-results .vmz-ui-table th[data-vmz-col="size"] {
-    width: 6.5rem;
-}
-.app-results .vmz-ui-table th[data-vmz-col="modified"] {
-    width: 10.5rem;
-}
-.app-results .vmz-ui-table th[data-vmz-col="frn"] {
-    width: 9rem;
-}
-.app-results .vmz-ui-table th[data-vmz-col="path"] {
-    width: auto;
-    min-width: 10rem;
-}
-/* Column order: kind, size, modified, path, frn. */
-.app-results .vmz-ui-table td:nth-child(4) {
-    white-space: normal;
-    overflow-wrap: anywhere;
-    line-height: 1.35;
+.of-path,
+.of-kind {
+    color: var(--vmz-text-tertiary, #6b6785);
 }
 
-/* Capabilities: a bounded drawer, never a second full-height card. */
-.app-drawer {
+.of-kind {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+}
+
+.of-empty,
+.of-loading {
+    position: absolute;
+    inset: 2.25rem 0 0;
     display: flex;
     flex-direction: column;
-    max-height: 32vh;
-    min-height: 0;
-    border-top: 1px solid var(--vmz-line-default, #e5e6eb);
-    background: var(--vmz-surface-paper, #fff);
-}
-.app-drawer__head {
-    display: flex;
     align-items: center;
-    gap: var(--vmz-space-3, 0.75rem);
-    padding: var(--vmz-space-2, 0.5rem) var(--vmz-space-3, 0.75rem);
-    border-bottom: 1px solid var(--vmz-line-subtle, #e5e6eb);
-    background: var(--vmz-surface-mist, #f7f8fa);
-    font-size: 0.75rem;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 2rem;
+    color: var(--vmz-text-tertiary, #6b6785);
+    text-align: center;
+    pointer-events: none;
 }
-.app-drawer__title {
+
+.of-empty__title {
+    color: var(--vmz-text-ink, #1b1830);
+    font-size: 0.9375rem;
     font-weight: 600;
-    color: var(--vmz-text-ink, #111827);
 }
-.app-drawer__meta {
-    min-width: 0;
+
+.of-empty__desc {
+    max-width: 30rem;
+    margin: 0;
+}
+
+.of-loading {
+    flex-direction: row;
+    gap: 0.5rem;
+}
+
+.of-spinner {
+    width: 0.875rem;
+    height: 0.875rem;
+    border: 2px solid var(--vmz-line-default, #e4e0f0);
+    border-top-color: var(--vmz-action-primary-background, #6e56cf);
+    border-radius: 50%;
+    animation: of-spin 0.8s linear infinite;
+}
+
+@keyframes of-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.of-status {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.75rem;
+    height: var(--of-status-height);
+    padding: 0 0.5rem;
+    border-top: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.71875rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.of-status__state {
+    max-width: 34%;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--vmz-text-tertiary, #6b7280);
+    color: var(--vmz-text-ink, #1b1830);
 }
-.app-drawer__head .vmz-ui-btn {
-    margin-left: auto;
-}
-.app-drawer__body {
-    display: flex;
+
+.of-status__grow {
     flex: 1 1 auto;
-    min-height: 0;
+}
+
+.of-status__warn {
+    color: var(--vmz-status-warning-foreground, #8a5a00);
+}
+
+.of-status__host {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.of-menu {
+    position: fixed;
+    z-index: 12;
+    display: flex;
+    flex-direction: column;
+    width: 13rem;
+    padding: 0.25rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
+    box-shadow: 0 8px 24px rgba(27, 24, 48, 0.18);
+}
+
+.of-menu__item {
+    height: 1.75rem;
+    padding: 0 0.5rem;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.of-menu__item:hover:not(:disabled) {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.of-menu__item:disabled {
+    color: var(--vmz-text-muted, #b3aec6);
+    cursor: default;
+}
+
+.of-menu__note {
+    margin-top: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-top: 1px solid var(--vmz-line-subtle, #f0edf8);
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.6875rem;
+    line-height: 1.35;
+    white-space: normal;
+}
+
+.of-caps {
+    position: absolute;
+    right: 0.5rem;
+    bottom: calc(var(--of-status-height) + 0.5rem);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    width: min(22rem, calc(100% - 1rem));
+    max-height: 60vh;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
+    box-shadow: 0 10px 30px rgba(27, 24, 48, 0.18);
     overflow: auto;
+}
+
+.of-caps__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.of-caps__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0.5rem;
+    list-style: none;
+}
+
+.of-caps__list li {
+    display: grid;
+    grid-template-columns: minmax(6rem, 1fr) auto;
+    gap: 0.125rem 0.5rem;
+    font-size: 0.71875rem;
+}
+
+.of-caps__detail {
+    grid-column: 1 / -1;
+    color: var(--vmz-text-tertiary, #6b6785);
+    overflow-wrap: anywhere;
 }
 
 @media (max-width: 900px) {
-    .app-toolbar__field {
-        flex-basis: 100%;
+    .of-col-size,
+    .of-col-kind,
+    .of-table th:nth-child(3),
+    .of-table td:nth-child(3),
+    .of-table th:nth-child(5),
+    .of-table td:nth-child(5) {
+        display: none;
     }
-    .app-toolbar__actions {
-        margin-left: 0;
-        flex-wrap: wrap;
+
+    .of-col-name {
+        width: 34%;
+    }
+
+    .of-col-time {
+        width: 7.5rem;
+    }
+
+    .of-mode__item {
+        padding: 0 0.375rem;
+    }
+
+    .of-btn {
+        padding: 0 0.375rem;
+    }
+}
+
+@media (max-width: 620px) {
+    .of-col-time,
+    .of-table th:nth-child(4),
+    .of-table td:nth-child(4) {
+        display: none;
+    }
+
+    .of-mode {
+        display: none;
+    }
+
+    .of-status__state {
+        max-width: 52%;
     }
 }
 </style>
 
 <script client>
 /**
- * Search page.
+ * Finder page.
  *
- * The page only renders results. Indexing, USN updates, matching, and auditing
- * live in the Rust `core` and `napi` crates. Requests go through the WebView
- * bridge implemented by `wae::webview`.
+ * All search, walk, and capability work runs in the Rust crates. The page keeps
+ * only the query draft, the rendered page, and keyboard focus; it never fabricates
+ * hits or index state.
  */
-export default class IndexPage {
-    patternLabel = "Pattern";
-    patternPlaceholder = "*.dll";
-    pathFilterLabel = "Path filter";
-    pathFilterPlaceholder = "\\Windows\\System32";
-    kindLabel = "Kind";
-    kindAny = "Any";
-    kindFile = "Files";
-    kindDir = "Directories";
-    sortLabel = "Sort";
-    sortName = "Name";
-    sortPath = "Path";
-    sortSize = "Size";
-    sortModified = "Modified";
-    searchLabel = "Search index";
-    walkLabel = "Walk folder";
-    closeLabel = "Close";
-    previousLabel = "Previous";
-    nextLabel = "Next";
-    searchingLabel = "Searching";
+export default class FinderPage {
+    searchPlaceholder = "Search names or patterns ( / )";
+    emptyTitle = "No results yet";
+    emptyDesc = "Type a name or glob and press Enter. Switch to Walk to scan a folder without an index.";
+    openReason = "This host exposes no shell open or reveal handler yet, so those actions stay disabled.";
 
-    modeLabel = "Mode";
-    totalLabel = "Matches";
-    pageLabel = "Page";
-    modeText = "—";
-    totalText = "—";
-    pageText = "—";
-
-    emptyHitsTitle = "No results yet";
-    emptyHitsDesc = "Enter a pattern and search, or walk a folder explicitly.";
-    status = "";
-
-    capabilitiesTitle = "Capabilities";
-    capabilitiesDesc = "Availability reported by crates/core. Unsupported or unfinished capabilities fail with structured codes.";
-    capabilitiesLabel = "Refresh";
-    capabilitiesOpen = false;
-    emptyTitle = "No capability report yet";
-    emptyDesc = "Refresh to read the capability table.";
-
-    pattern = "*.dll";
-    pathFilter = "";
-    kind = "";
+    pattern = "";
+    rootPath = "";
+    mode = "index";
+    kind = "any";
+    minSizeMb = "";
+    maxSizeMb = "";
+    modifiedAfter = "";
+    modifiedBefore = "";
+    regex = false;
+    matchPath = false;
     sort = "name";
-    pageSize = 100;
+    descending = false;
+    advancedOpen = false;
+    activeFilters = [];
+    activeFilterCount = 0;
+    rows = [];
+    total = 0;
+    tookMs = 0;
+    indexed = false;
+    skipped = 0;
+    truncated = false;
     offset = 0;
-    hasMore = false;
-    searching = false;
-    loadingCapabilities = false;
+    limit = 200;
+    loading = false;
     error = "";
-    hitColumns = [
-        { id: "kind", title: "Kind" },
-        { id: "size", title: "Size", align: "right" },
-        { id: "modified", title: "Modified" },
-        { id: "path", title: "Path" },
-        { id: "frn", title: "FRN", align: "right" },
-    ];
-    hitRows = [];
-    capabilityColumns = [
-        { id: "id", title: "Capability" },
-        { id: "state", title: "State" },
-        { id: "detail", title: "Detail" },
-    ];
+    status = "";
+    statusMessage = "Ready";
+    focusedIndex = -1;
+    menuOpen = false;
+    menuStyle = "";
+    menuRowIndex = -1;
+    capabilitiesOpen = false;
     capabilityRows = [];
+    loadingCapabilities = false;
+    countText = "0 results";
+    timingText = "";
+    modeText = "Index";
+    indexText = "";
+    loadingText = "Searching the index…";
+    _seq = 0;
+    _timer = 0;
+    _query = "";
 
     onMount() {
         this.installHostBridge();
-        const bridge = globalThis.chrome && globalThis.chrome.webview;
-        if (bridge && bridge.postMessage) this.loadCapabilities();
+        this.installKeyboard();
+        document.addEventListener("pointerdown", (event) => {
+            if (this.menuOpen && event.target && !event.target.closest(".of-menu")) this.closeMenu();
+        });
+        setTimeout(() => {
+            const input = document.getElementById("of-query");
+            if (input) input.focus();
+        }, 0);
+    }
+
+    bridge() {
+        const webview = globalThis.chrome && globalThis.chrome.webview;
+        return webview && webview.postMessage ? webview : null;
     }
 
     installHostBridge() {
-        const handler = (event) => {
-            let data = event && typeof event === "object" && "data" in event ? event.data : event;
+        const webview = this.bridge();
+        if (!webview || !webview.addEventListener) return;
+        webview.addEventListener("message", (event) => {
+            let data = event.data;
             if (typeof data === "string") {
                 try {
                     data = JSON.parse(data);
-                } catch {
+                }
+                catch {
                     return;
                 }
             }
-            this.handleReply(data);
-        };
-        const bridge = globalThis.chrome && globalThis.chrome.webview;
-        if (bridge && bridge.addEventListener) bridge.addEventListener("message", handler);
-        globalThis.__waeReceive = (text) => {
-            try {
-                handler(JSON.parse(text));
-            } catch {
-                // Ignore malformed host messages.
+            if (!data || typeof data !== "object") return;
+            if (data.ok === true) {
+                this.applyResponse(data.data || {});
             }
+            else if (data.ok === false) {
+                this.loading = false;
+                this.error = this.describeError(data.error);
+                this.refreshStatus();
+            }
+        });
+    }
+
+    installKeyboard() {
+        document.addEventListener("keydown", (event) => {
+            const target = event.target;
+            const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
+            if (event.key === "Escape" && this.menuOpen) {
+                this.closeMenu();
+                return;
+            }
+            if (typing) return;
+            if (event.key === "/" || (event.ctrlKey && (event.key === "l" || event.key === "L"))) {
+                event.preventDefault();
+                const input = document.getElementById("of-query");
+                if (input) {
+                    input.focus();
+                    input.select();
+                }
+            }
+            else if (event.ctrlKey && event.shiftKey && (event.key === "f" || event.key === "F")) {
+                event.preventDefault();
+                this.toggleAdvanced();
+            }
+            else if (event.key === "ArrowDown" && this.rows.length && this.focusedIndex < 0) {
+                event.preventDefault();
+                this.focusAt(0);
+            }
+        });
+    }
+
+    describeError(error) {
+        if (typeof error === "string") return error;
+        if (error && typeof error === "object") {
+            const code = error.code ? `[${error.code}] ` : "";
+            return `${code}${error.message || "request failed"}`;
+        }
+        return "request failed";
+    }
+
+    onQueryInput(e) {
+        this.pattern = e && e.target ? String(e.target.value || "") : "";
+        this.scheduleSearch();
+    }
+
+    onRootInput(e) {
+        this.rootPath = e && e.target ? String(e.target.value || "") : "";
+    }
+
+    onKindChange(e) {
+        this.kind = e && e.target ? String(e.target.value || "any") : "any";
+        this.scheduleSearch();
+    }
+
+    onMinSizeInput(e) {
+        this.minSizeMb = e && e.target ? String(e.target.value || "") : "";
+    }
+
+    onMaxSizeInput(e) {
+        this.maxSizeMb = e && e.target ? String(e.target.value || "") : "";
+    }
+
+    onAfterInput(e) {
+        this.modifiedAfter = e && e.target ? String(e.target.value || "") : "";
+    }
+
+    onBeforeInput(e) {
+        this.modifiedBefore = e && e.target ? String(e.target.value || "") : "";
+    }
+
+    onSortChange(e) {
+        this.sort = e && e.target ? String(e.target.value || "name") : "name";
+        this.scheduleSearch();
+    }
+
+    onRegexChange(e) {
+        this.regex = !!(e && e.target && e.target.checked);
+    }
+
+    onMatchPathChange(e) {
+        this.matchPath = !!(e && e.target && e.target.checked);
+    }
+
+    onDescendingChange(e) {
+        this.descending = !!(e && e.target && e.target.checked);
+    }
+
+    onQueryKey(e) {
+        if (!e) return;
+        if (e.key === "Enter") {
+            e.preventDefault();
+            this.runSearch();
+        }
+        else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            this.focusAt(0);
+        }
+    }
+
+    setMode(e) {
+        const mode = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.mode : "index";
+        this.mode = mode === "walk" ? "walk" : "index";
+        this.refreshStatus();
+        if (this.mode === "walk") {
+            this.advancedOpen = true;
+            setTimeout(() => {
+                const root = document.getElementById("of-root");
+                if (root && !this.rootPath) root.focus();
+            }, 0);
+        }
+        else {
+            this.scheduleSearch();
+        }
+    }
+
+    toggleAdvanced() {
+        this.advancedOpen = !this.advancedOpen;
+        this.refreshStatus();
+    }
+
+    clearQuery() {
+        this.pattern = "";
+        this.closeMenu();
+        const input = document.getElementById("of-query");
+        if (input) input.focus();
+        this.scheduleSearch();
+    }
+
+    scheduleSearch() {
+        if (this._timer) clearTimeout(this._timer);
+        const hasCondition = this.pattern.trim().length > 0
+            || this.kind !== "any"
+            || this.minSizeMb !== ""
+            || this.maxSizeMb !== ""
+            || this.modifiedAfter !== ""
+            || this.modifiedBefore !== "";
+        if (!hasCondition) {
+            this.rows = [];
+            this.total = 0;
+            this.tookMs = 0;
+            this.indexed = false;
+            this.skipped = 0;
+            this.truncated = false;
+            this.error = "";
+            this.status = "Ready";
+            this.refreshStatus();
+            return;
+        }
+        if (this.mode === "walk" && !this.rootPath.trim()) return;
+        this._timer = setTimeout(() => {
+            this.runSearch();
+        }, 250);
+    }
+
+    buildSpec() {
+        const spec = {
+            pattern: this.pattern.trim() || null,
+            regex: this.regex,
+            matchPath: this.matchPath,
+            kind: this.kind === "any" ? null : this.kind,
+            sort: this.sort,
+            descending: this.descending,
+            limit: this.limit,
+            offset: 0,
         };
+        if (this.minSizeMb !== "") spec.minSize = Math.max(0, Math.round(Number(this.minSizeMb) * 1024 * 1024));
+        if (this.maxSizeMb !== "") spec.maxSize = Math.max(0, Math.round(Number(this.maxSizeMb) * 1024 * 1024));
+        if (this.modifiedAfter !== "") spec.modifiedAfterMs = new Date(this.modifiedAfter).getTime();
+        if (this.modifiedBefore !== "") spec.modifiedBeforeMs = new Date(this.modifiedBefore).getTime();
+        return spec;
+    }
+
+    runSearch() {
+        if (this._timer) clearTimeout(this._timer);
+        if (this.mode === "walk" && !this.rootPath.trim()) {
+            this.error = "Walk mode needs a folder to scan.";
+            this.refreshStatus();
+            return;
+        }
+        this.searchAt(0, false);
+    }
+
+    searchAt(offset, append) {
+        const spec = this.buildSpec();
+        spec.offset = offset;
+        this._seq += 1;
+        this.loading = true;
+        this.error = "";
+        this.status = "Searching…";
+        this.refreshStatus();
+        const message = { type: this.mode === "walk" ? "searchWalk" : "search", requestId: this._seq, ...spec };
+        if (this.mode === "walk") message.root = this.rootPath.trim();
+        if (!this.post(message)) this.loading = false;
+        if (append) this._append = true;
     }
 
     post(message) {
-        const payload = JSON.stringify(message);
-        const win = globalThis.chrome && globalThis.chrome.webview;
-        if (win && win.postMessage) {
-            win.postMessage(payload);
-            return true;
+        const webview = this.bridge();
+        if (!webview) {
+            this.loading = false;
+            this.error = "Native bridge unavailable (not running inside the WebView2 host).";
+            this.refreshStatus();
+            return false;
         }
-        const webkit = globalThis.webkit && globalThis.webkit.messageHandlers;
-        if (webkit && webkit.wae) {
-            webkit.wae.postMessage(payload);
-            return true;
-        }
-        this.error = "Native bridge unavailable (open this page through the host).";
-        return false;
+        webview.postMessage(JSON.stringify(message));
+        return true;
     }
 
-    handleReply(data) {
-        if (!data || typeof data !== "object") return;
-        if (data.ok !== true) {
-            this.searching = false;
-            this.loadingCapabilities = false;
-            const failure = data.error;
-            this.error = typeof failure === "string" ? failure : String((failure && failure.message) || "unknown error");
-            this.status = "";
+    applyResponse(data) {
+        if (Array.isArray(data.entries)) {
+            this.applyCapabilities(data);
             return;
         }
-        const value = data.data || {};
-        if (Array.isArray(value.hits)) {
-            const offset = Number(value.offset) || 0;
-            const total = Number(value.total) || 0;
-            this.searching = false;
-            this.error = "";
-            this.offset = offset;
-            this.hasMore = value.hasMore === true;
-            this.status = `Query complete in ${Number(value.tookMs) || 0} ms.`;
-            this.modeText = `${value.mode || "index"} (indexed: ${value.indexed ? "yes" : "no"})`;
-            this.totalText = String(total);
-            const shown = offset + value.hits.length;
-            this.pageText = `${offset}..${shown} of ${total}${value.hasMore ? " +" : ""}`;
-            this.hitRows = value.hits.map((hit, index) => ({
-                id: String(index),
-                cells: [
-                    String(hit.isDir ? "dir" : "file"),
-                    this.formatBytes(Number(hit.size) || 0),
-                    this.formatTime(Number(hit.modifiedMs) || 0),
-                    String(hit.path || ""),
-                    String(hit.frn ?? "—"),
-                ],
-            }));
+        const page = data && data.hits ? data : null;
+        if (!page) {
+            this.loading = false;
+            this.error = "Unexpected response from the host.";
+            this.refreshStatus();
             return;
         }
-        if (Array.isArray(value.items)) {
-            this.loadingCapabilities = false;
-            this.error = "";
-            this.status = "Capability report updated.";
-            this.capabilityRows = value.items.map((item, index) => ({
-                id: String(index),
-                cells: [String(item.id || ""), String(item.state || "supported"), String(item.detail || "")],
-            }));
-        }
+        this.loading = false;
+        this.total = Number(page.total) || 0;
+        this.tookMs = Number(page.tookMs) || 0;
+        this.indexed = !!page.indexed;
+        this.skipped = Number(page.skipped) || 0;
+        this.truncated = !!page.truncated;
+        const base = this._append ? this.rows.length : 0;
+        const incoming = (page.hits || []).map((hit, index) => this.describeHit(hit, base + index));
+        this.rows = this._append ? this.rows.concat(incoming) : incoming;
+        this.offset = base + incoming.length;
+        this._append = false;
+        this.error = "";
+        this.status = this.rows.length ? `Scanned in ${this.tookMs} ms.` : "No matches.";
+        if (this.focusedIndex >= this.rows.length) this.focusedIndex = this.rows.length - 1;
+        this.refreshStatus();
+    }
+
+    describeHit(hit, index) {
+        const path = String(hit.path || "");
+        const name = String(hit.name || this.basename(path));
+        const dir = this.dirname(path);
+        const size = Number(hit.size) || 0;
+        const modified = Number(hit.modifiedMs) || 0;
+        return {
+            index,
+            key: `${index}:${path}`,
+            name,
+            path,
+            dirLabel: dir,
+            sizeText: hit.isDir ? "—" : this.formatBytes(size),
+            modifiedText: this.formatTime(modified),
+            typeText: hit.isDir ? "Folder" : (this.extension(name) || "File"),
+        };
+    }
+
+    applyCapabilities(report) {
+        this.loadingCapabilities = false;
+        this.capabilityRows = (report.entries || []).map((entry) => {
+            const state = entry.state || {};
+            return {
+                id: String(entry.id || ""),
+                title: String(entry.title || entry.id || ""),
+                state: `${String(state.state || "unknown")}${state.code ? ` [${state.code}]` : ""}`,
+                detail: String(state.detail || ""),
+            };
+        });
+        this.status = `Host ${report.platform || "unknown"}.`;
+        this.refreshStatus();
     }
 
     toggleCapabilities() {
         this.capabilitiesOpen = !this.capabilitiesOpen;
-        if (this.capabilitiesOpen && !this.capabilityRows.length && !this.loadingCapabilities) this.loadCapabilities();
-    }
-
-    onPatternInput(event) {
-        this.pattern = event && event.target ? String(event.target.value || "") : "";
-    }
-
-    onPathFilterInput(event) {
-        this.pathFilter = event && event.target ? String(event.target.value || "") : "";
-    }
-
-    onKindChange(event) {
-        this.kind = event && event.target ? String(event.target.value || "") : "";
-    }
-
-    onSortChange(event) {
-        this.sort = event && event.target ? String(event.target.value || "") : "name";
-    }
-
-    query() {
-        return {
-            pattern: this.pattern || undefined,
-            pathFilter: this.pathFilter || undefined,
-            kind: this.kind || undefined,
-            sort: this.sort,
-            limit: this.pageSize,
-            offset: this.offset,
-        };
-    }
-
-    runSearch() {
-        this.searching = true;
-        this.error = "";
-        if (!this.post({ type: "search", ...this.query() })) this.searching = false;
-    }
-
-    resetAndSearch() {
-        this.offset = 0;
-        this.runSearch();
-    }
-
-    nextPage() {
-        if (!this.hasMore) return;
-        this.offset += this.pageSize;
-        this.runSearch();
-    }
-
-    previousPage() {
-        if (this.offset === 0) return;
-        this.offset = Math.max(0, this.offset - this.pageSize);
-        this.runSearch();
-    }
-
-    runWalk() {
-        this.searching = true;
-        this.error = "";
-        const root = (this.pathFilter || "").trim();
-        if (!root) {
-            this.searching = false;
-            this.error = "Walk mode needs an absolute folder in the path filter field.";
-            return;
+        if (this.capabilitiesOpen && !this.capabilityRows.length) {
+            this.loadingCapabilities = true;
+            this._seq += 1;
+            this.post({ type: "capabilities", requestId: this._seq });
         }
-        if (!this.post({ type: "searchWalk", root, ...this.query() })) this.searching = false;
     }
 
-    loadCapabilities() {
-        this.loadingCapabilities = true;
+    refreshStatus() {
+        this.statusMessage = this.error || this.status || "Ready";
+        this.countText = `${this.rows.length} of ${this.total}`;
+        this.timingText = this.tookMs ? `${this.tookMs} ms` : "";
+        this.modeText = this.mode === "walk" ? "Walk" : "Index";
+        this.loadingText = this.mode === "walk" ? "Walking the folder…" : "Searching the index…";
+        this.indexText = this.indexed
+            ? "indexed"
+            : (this.mode === "walk" ? `walk · skipped ${this.skipped}` : "index not used");
+        this.activeFilters = this.computeFilters();
+        this.activeFilterCount = this.activeFilters.length;
+    }
+
+    computeFilters() {
+        const filters = [];
+        if (this.kind !== "any") filters.push({ id: "kind", label: `Kind: ${this.kind === "dir" ? "folder" : "file"}` });
+        if (this.minSizeMb !== "") filters.push({ id: "min", label: `Min: ${this.minSizeMb} MB` });
+        if (this.maxSizeMb !== "") filters.push({ id: "max", label: `Max: ${this.maxSizeMb} MB` });
+        if (this.modifiedAfter !== "") filters.push({ id: "after", label: `After: ${this.modifiedAfter}` });
+        if (this.modifiedBefore !== "") filters.push({ id: "before", label: `Before: ${this.modifiedBefore}` });
+        if (this.regex) filters.push({ id: "regex", label: "Regex" });
+        if (this.matchPath) filters.push({ id: "matchPath", label: "Full path" });
+        return filters;
+    }
+
+    removeFilter(e) {
+        const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.chip : "";
+        if (id === "kind") this.kind = "any";
+        else if (id === "min") this.minSizeMb = "";
+        else if (id === "max") this.maxSizeMb = "";
+        else if (id === "after") this.modifiedAfter = "";
+        else if (id === "before") this.modifiedBefore = "";
+        else if (id === "regex") this.regex = false;
+        else if (id === "matchPath") this.matchPath = false;
+        this.scheduleSearch();
+    }
+
+    resetFilters() {
+        this.pattern = "";
+        this.rootPath = "";
+        this.kind = "any";
+        this.minSizeMb = "";
+        this.maxSizeMb = "";
+        this.modifiedAfter = "";
+        this.modifiedBefore = "";
+        this.regex = false;
+        this.matchPath = false;
+        this.sort = "name";
+        this.descending = false;
+        this.rows = [];
+        this.total = 0;
+        this.tookMs = 0;
         this.error = "";
-        if (!this.post({ type: "capabilities" })) this.loadingCapabilities = false;
+        this.status = "Ready";
+        this.refreshStatus();
     }
 
-    closeWindow() {
-        this.post({ type: "close" });
+    focusRow(e) {
+        const index = e && e.currentTarget && e.currentTarget.dataset ? Number(e.currentTarget.dataset.index) : -1;
+        if (index >= 0) this.focusAt(index);
     }
 
-    formatBytes(value) {
-        if (value < 1024) return `${value} B`;
-        if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
-        if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
-        return `${(value / 1024 ** 3).toFixed(2)} GB`;
+    focusAt(index) {
+        if (index < 0 || index >= this.rows.length) return;
+        this.focusedIndex = index;
+        const row = document.querySelector(`.of-table tbody tr[data-index="${index}"]`);
+        if (row) {
+            row.scrollIntoView({ block: "nearest" });
+            const body = row.parentElement;
+            if (body) body.focus({ preventScroll: true });
+        }
     }
 
-    formatTime(value) {
-        if (!value) return "—";
-        return new Date(value).toISOString().slice(0, 19).replace("T", " ");
+    onTableKey(e) {
+        if (!e) return;
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            this.focusAt(Math.min(this.rows.length - 1, this.focusedIndex + 1));
+        }
+        else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            this.focusAt(Math.max(0, this.focusedIndex - 1));
+        }
+        else if (e.key === "PageDown") {
+            e.preventDefault();
+            this.focusAt(Math.min(this.rows.length - 1, this.focusedIndex + 12));
+        }
+        else if (e.key === "PageUp") {
+            e.preventDefault();
+            this.focusAt(Math.max(0, this.focusedIndex - 12));
+        }
+        else if (e.key === "Home") {
+            e.preventDefault();
+            this.focusAt(0);
+        }
+        else if (e.key === "End") {
+            e.preventDefault();
+            this.focusAt(this.rows.length - 1);
+        }
+        else if (e.key === "Enter") {
+            e.preventDefault();
+            this.openMenuForFocused(e);
+        }
+        else if (e.ctrlKey && (e.key === "c" || e.key === "C")) {
+            e.preventDefault();
+            this.copyFocusedPath();
+        }
+        else if (e.key === "Escape") {
+            this.closeMenu();
+        }
+    }
+
+    openRowMenu(e) {
+        const row = e && e.target ? e.target.closest("tr[data-index]") : null;
+        if (!row) return;
+        const index = Number(row.dataset.index);
+        this.focusAt(index);
+        this.menuRowIndex = index;
+        this.menuOpen = true;
+        const width = 208;
+        const x = Math.max(4, Math.min((e.clientX || 0), globalThis.innerWidth - width - 4));
+        const y = Math.max(4, Math.min((e.clientY || 0), globalThis.innerHeight - 180));
+        this.menuStyle = `left:${x}px;top:${y}px`;
+    }
+
+    openMenuForFocused(e) {
+        if (this.focusedIndex < 0) return;
+        const row = document.querySelector(`.of-table tbody tr[data-index="${this.focusedIndex}"]`);
+        this.menuRowIndex = this.focusedIndex;
+        if (row) {
+            const rect = row.getBoundingClientRect();
+            this.menuOpen = true;
+            this.menuStyle = `left:${Math.max(4, rect.left + 24)}px;top:${Math.min(globalThis.innerHeight - 180, rect.bottom + 2)}px`;
+        }
+        else {
+            this.menuOpen = true;
+            this.menuStyle = "left:0.5rem;top:6rem";
+        }
+    }
+
+    closeMenu() {
+        this.menuOpen = false;
+        this.menuRowIndex = -1;
+    }
+
+    focusedRow() {
+        return this.rows[this.menuRowIndex >= 0 ? this.menuRowIndex : this.focusedIndex] || null;
+    }
+
+    async copyFocusedPath() {
+        const row = this.focusedRow();
+        if (!row) return;
+        await this.copyText(row.path, "Path copied.");
+    }
+
+    async copyFocusedName() {
+        const row = this.focusedRow();
+        if (!row) return;
+        await this.copyText(row.name, "Name copied.");
+    }
+
+    async copyText(text, message) {
+        try {
+            await navigator.clipboard.writeText(text);
+            this.status = message;
+            this.closeMenu();
+            this.refreshStatus();
+        }
+        catch {
+            this.error = "Clipboard access was refused by the host.";
+            this.closeMenu();
+            this.refreshStatus();
+        }
+    }
+
+    basename(path) {
+        const value = String(path || "");
+        const index = Math.max(value.lastIndexOf("\\"), value.lastIndexOf("/"));
+        return index >= 0 ? value.slice(index + 1) : value;
+    }
+
+    dirname(path) {
+        const value = String(path || "");
+        const index = Math.max(value.lastIndexOf("\\"), value.lastIndexOf("/"));
+        return index >= 0 ? value.slice(0, index) : value;
+    }
+
+    extension(name) {
+        const value = String(name || "");
+        const index = value.lastIndexOf(".");
+        return index > 0 ? value.slice(index + 1).toUpperCase() : "";
+    }
+
+    formatBytes(size) {
+        if (!size) return "0 B";
+        if (size < 1024) return `${size} B`;
+        if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`;
+        if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} MB`;
+        return `${(size / 1024 ** 3).toFixed(2)} GB`;
+    }
+
+    formatTime(ms) {
+        if (!ms) return "—";
+        const date = new Date(ms);
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
 }
 </script>
