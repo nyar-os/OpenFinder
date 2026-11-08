@@ -1,36 +1,70 @@
 /**
  * Build and release configuration for OpenFinder.
  *
- * This file is pure data so it can be parsed statically. `wae build` reads it
- * to order native → TypeScript → UI → skills validation → staging.
+ * Pure literals only: `wae` parses this file statically and never executes it.
+ * Build order is fixed: native → ts → ui → skills → staging.
  */
 export default {
     native: {
         crate: 'open-finder-napi',
-        target: 'win32-x64',
         cdylib: 'open_finder_napi',
-        artifact: 'open-finder.win32-x64.node',
-        platformPackage: '@wae/open-finder-win32-x64',
+        targets: [
+            {
+                platform: 'win32',
+                arch: 'x64',
+                triple: 'x86_64-pc-windows-msvc',
+                package: '@wae/open-finder-win32-x64',
+                nodeFile: 'open-finder.win32-x64.node',
+                dir: 'packages/open-finder-win32-x64',
+            },
+        ],
     },
-    packages: {
-        native: {
+    packages: [
+        {
+            name: '@wae/open-finder-win32-x64',
             dir: 'packages/open-finder-win32-x64',
             os: ['win32'],
             cpu: ['x64'],
+            main: 'open-finder.win32-x64.node',
         },
-    },
+    ],
     build: {
-        order: ['native', 'typescript', 'ui', 'skills'],
+        ts: { packages: ['@wae/open-finder'] },
+        ui: { package: '@wae/open-finder-ui' },
+        stage: [
+            { from: 'packages/open-finder-ui/dist/static', to: 'packages/open-finder/dist/gui' },
+        ],
+        outputs: ['packages/open-finder/dist/cli.js', 'packages/open-finder/dist/gui/index.html'],
     },
     skills: {
-        dir: 'packages/open-finder-skills/skills',
-        check: 'scripts/check-skills.ts',
+        packages: [
+            {
+                dir: 'packages/open-finder-skills/skills',
+                packageJson: 'packages/open-finder-skills/package.json',
+                appPackageJson: 'packages/open-finder/package.json',
+                cliEntry: 'packages/open-finder/dist/cli.js',
+                commandName: 'open-finder',
+            },
+        ],
     },
     release: {
-        packages: ['@wae/open-finder', '@wae/open-finder-skills', '@wae/open-finder-win32-x64'],
-        tag: 'vX.Y.Z',
+        registry: 'https://registry.npmjs.org',
+        tagPattern: '^v(\\d+\\.\\d+\\.\\d+)$',
+        packages: [
+            { name: '@wae/open-finder', dir: 'packages/open-finder' },
+            { name: '@wae/open-finder-skills', dir: 'packages/open-finder-skills' },
+            { name: '@wae/open-finder-win32-x64', dir: 'packages/open-finder-win32-x64' },
+        ],
     },
     ci: {
-        workflows: ['check-rust.yml', 'check-typescript.yml'],
+        repo: 'nyar-os/OpenFinder',
+        workflows: ['check-rust.yml', 'check-typescript.yml', 'publish-npm.yml'],
+        requiredJobs: ['check-rust', 'check-typescript'],
+    },
+    install: {
+        shortcutDefault: true,
+    },
+    audit: {
+        actor: { kind: 'flag', id: 'flag', source: 'flag' },
     },
 };
