@@ -5,7 +5,8 @@
     "description": "Agent skills for OpenFinder",
     "files": [
         "skills",
-        "Readme.md"
+        "Readme.md",
+        "License.md"
     ],
     "license": "Apache-2.0",
     "engines": {
