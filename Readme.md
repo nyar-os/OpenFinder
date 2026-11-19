@@ -14,8 +14,8 @@ implicit fallback: the portable walk is a separate, explicitly labelled mode.
 | `packages/open-finder-ui` | VMZ search page, design tokens, and GUI staging |
 | `packages/open-finder-skills` | Agent skill with command and safety guidance |
 | `packages/open-finder-win32-x64` | Native platform package (`os` / `cpu` / `optionalDependencies`) |
-| `scripts/build-napi.ts` | Build the native addon and resolve its artifact |
-| `scripts/stage-native.ts` | Copy the artifact into the platform package |
+| `wae native build` | Build the native addon and resolve its artifact (configured in `wae.config.ts`) |
+| `wae native stage` | Copy the artifact into the platform package (configured in `wae.config.ts`) |
 | `scripts/check-skills.ts` | Validate skill frontmatter and every CLI command and flag |
 
 ## Index storage
@@ -96,8 +96,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-`build:napi` writes `dist/napi/<name>` and `stage-native` copies the addon into
-the platform package. Keep `CARGO_BUILD_JOBS=2` when running cargo and do not run
+`build:napi` runs `wae native build` and `stage:native` runs `wae native stage`.
+The native target table and artifact lookup live in `wae.config.ts`. Keep
+`CARGO_BUILD_JOBS=2` when running cargo and do not run
 another build in parallel with it.
 
 ## Audit

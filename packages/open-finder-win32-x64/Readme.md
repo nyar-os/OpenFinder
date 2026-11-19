@@ -2,8 +2,8 @@
 
 Platform package for the `open-finder` native addon on Windows x64.
 
-The `*.node` binary is produced by `scripts/build-napi.ts` and copied here by
-`scripts/stage-native.ts`. It is not committed. Build before publishing:
+The `*.node` binary is built by `wae native build` and staged here by
+`wae native stage` (configured in `wae.config.ts`). It is not committed. Build before publishing:
 
 ```bash
 pnpm run build:napi
