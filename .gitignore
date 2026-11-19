@@ -30,3 +30,6 @@ packages/open-finder-ui/.cache/
 
 # Local index output when built inside the repository
 .index/
+
+# npm secrets (nifty)
+.secrets/
