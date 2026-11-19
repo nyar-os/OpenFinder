@@ -126,8 +126,14 @@ if (skillsManifest.version !== app.version) {
     fail(`skills package version \`${skillsManifest.version}\` must match the app version \`${app.version}\``);
 }
 const files = skillsManifest.files;
-if (!Array.isArray(files) || !files.includes('skills') || files.length > 2) {
-    fail('skills package `files` must contain `skills` plus at most one readme');
+if (!Array.isArray(files) || !files.includes('skills')) {
+    fail('skills package `files` must contain `skills`');
+}
+const extras = files.filter((entry: string) => entry !== 'skills');
+const readmes = extras.filter((entry: string) => /readme\.md$/i.test(entry));
+const licenses = extras.filter((entry: string) => entry === 'License.md');
+if (readmes.length > 1 || licenses.length > 1 || extras.length !== readmes.length + licenses.length) {
+    fail('skills package `files` must contain `skills` plus at most one readme and `License.md`');
 }
 
 const skillDirs = fs
