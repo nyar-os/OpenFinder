@@ -10,6 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use boost_fs::walk::{ErrorPolicy, Walker};
 use serde::Deserialize;
 
 use crate::{
@@ -49,89 +50,78 @@ pub fn walk(options: &WalkOptions) -> Result<SearchPage> {
     let mut hits = Vec::new();
     let mut skipped = 0u64;
     let mut inspected = 0u64;
-    let mut stack = vec![(options.root.clone(), 0u32)];
     let mut truncated = false;
-    'walk: while let Some((directory, depth)) = stack.pop() {
-        let Ok(reader) = fs::read_dir(&directory)
+
+    // The `boost-fs` walk kernel owns recursion, the depth bound and the
+    // symlink policy; the portable walk keeps its own result filtering.
+    let walker = Walker::new(&options.root).min_depth(1).max_depth(options.max_depth as usize).error_policy(ErrorPolicy::Lenient);
+    for item in walker {
+        if inspected >= options.max_entries {
+            // Stop the whole walk, not just this directory, and mark the page
+            // so `total` is never read as the size of the full tree.
+            truncated = true;
+            break;
+        }
+        let entry = match item {
+            Ok(entry) => entry,
+            Err(_) => {
+                skipped += 1;
+                continue;
+            }
+        };
+        inspected += 1;
+        if entry.is_symlink() {
+            skipped += 1;
+            continue;
+        }
+        let Ok(metadata) = entry.metadata()
         else {
             skipped += 1;
             continue;
         };
-        for entry in reader {
-            if inspected >= options.max_entries {
-                // Stop the whole walk, not just this directory, and mark the page
-                // so `total` is never read as the size of the full tree.
-                truncated = true;
-                break 'walk;
-            }
-            let Ok(entry) = entry
-            else {
-                skipped += 1;
-                continue;
+        let is_dir = metadata.is_dir();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path_text = entry.path().display().to_string();
+        if let Some(kind) = options.spec.kind {
+            let wanted = match kind {
+                EntryKind::File => !is_dir,
+                EntryKind::Directory => is_dir,
             };
-            inspected += 1;
-            let Ok(file_type) = entry.file_type()
-            else {
-                skipped += 1;
-                continue;
-            };
-            if file_type.is_symlink() {
-                skipped += 1;
+            if !wanted {
                 continue;
             }
-            let Ok(metadata) = entry.metadata()
-            else {
-                skipped += 1;
-                continue;
-            };
-            let is_dir = metadata.is_dir();
-            let name = entry.file_name().to_string_lossy().to_string();
-            let path = entry.path();
-            let path_text = path.display().to_string();
-            if depth < options.max_depth && is_dir {
-                stack.push((path.clone(), depth + 1));
-            }
-            if let Some(kind) = options.spec.kind {
-                let wanted = match kind {
-                    EntryKind::File => !is_dir,
-                    EntryKind::Directory => is_dir,
-                };
-                if !wanted {
-                    continue;
-                }
-            }
-            let size = if is_dir { 0 } else { metadata.len() };
-            if options.spec.min_size.is_some_and(|minimum| size < minimum) || options.spec.max_size.is_some_and(|maximum| size > maximum) {
-                continue;
-            }
-            let modified_ms = timestamp_ms(metadata.modified().ok());
-            if options.spec.modified_after_ms.is_some_and(|after| modified_ms < after)
-                || options.spec.modified_before_ms.is_some_and(|before| modified_ms > before)
-            {
-                continue;
-            }
-            if let Some(filter) = &path_filter
-                && !path_text.to_lowercase().contains(filter)
-            {
-                continue;
-            }
-            if let Some(matcher) = &matcher {
-                let subject = if options.spec.match_path { path_text.as_str() } else { name.as_str() };
-                if !matcher.is_match(subject) {
-                    continue;
-                }
-            }
-            hits.push(SearchHit {
-                frn: 0,
-                name,
-                path: path_text,
-                is_dir,
-                size,
-                created_ms: timestamp_ms(metadata.created().ok()),
-                modified_ms,
-                accessed_ms: timestamp_ms(metadata.accessed().ok()),
-            });
         }
+        let size = if is_dir { 0 } else { metadata.len() };
+        if options.spec.min_size.is_some_and(|minimum| size < minimum) || options.spec.max_size.is_some_and(|maximum| size > maximum) {
+            continue;
+        }
+        let modified_ms = timestamp_ms(metadata.modified().ok());
+        if options.spec.modified_after_ms.is_some_and(|after| modified_ms < after)
+            || options.spec.modified_before_ms.is_some_and(|before| modified_ms > before)
+        {
+            continue;
+        }
+        if let Some(filter) = &path_filter
+            && !path_text.to_lowercase().contains(filter)
+        {
+            continue;
+        }
+        if let Some(matcher) = &matcher {
+            let subject = if options.spec.match_path { path_text.as_str() } else { name.as_str() };
+            if !matcher.is_match(subject) {
+                continue;
+            }
+        }
+        hits.push(SearchHit {
+            frn: 0,
+            name,
+            path: path_text,
+            is_dir,
+            size,
+            created_ms: timestamp_ms(metadata.created().ok()),
+            modified_ms,
+            accessed_ms: timestamp_ms(metadata.accessed().ok()),
+        });
     }
     let total = hits.len() as u64;
     match options.spec.sort {

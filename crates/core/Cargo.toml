@@ -10,6 +10,7 @@ description = "OpenFinder NTFS index, query, capability states, and install plan
 publish = false
 
 [dependencies]
+boost-fs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
