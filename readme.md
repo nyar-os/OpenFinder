@@ -15,6 +15,8 @@ OpenFinder is a fast file search engine with two execution paths:
 
 Every mode supports the same query surface: glob patterns, regex matching, size ranges, modification-time windows, file/dir kind filters, multi-key sorting, and pagination.
 
+- **Content scan (`scan`)** — a separate entry point for conditions that require reading file bytes, such as line-count filters for code analysis. Metadata queries never open a file; a scan always does, so it carries its own cost contract: directory-level `--exclude` pruning (the `code` preset drops `node_modules`, `.git`, `dist`, and friends before traversal), streaming line counts with early rejection, and budgets (`--max-files`, `--max-bytes`, `--timeout-ms`) that stop early and report `budgetExceeded` instead of silently returning partial results.
+
 ## 🚀 CLI in action
 
 Build an index for your Windows C: volume (requires elevation):
@@ -33,6 +35,12 @@ Use regex for installers on a non-indexed volume or a portable OS:
 
 ```bash
 open-finder search --mode walk --root ./downloads --regex --pattern "^(setup|installer).*\\.exe$" --limit 20
+```
+
+Find the biggest source files in a repository for a code review — line conditions belong to `scan`, and `node_modules` never slows it down:
+
+```bash
+open-finder scan --root ./repo --include "*.rs,*.ts" --min-lines 500 --sort lines --desc --limit 20 --json
 ```
 
 ## 🏗️ How it works
