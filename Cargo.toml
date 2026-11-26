@@ -5,7 +5,7 @@ default-members = ["crates/core", "crates/napi"]
 exclude = ["projects"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.0.1"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
@@ -21,7 +21,7 @@ regex = "1"
 wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "62ed053e7b3d48cad3c4d5a08d06bbf30377a242" }
 # Traversal kernel shared with OpenCleaner.
 boost-fs = { git = "https://github.com/oovm/rust-boost", rev = "08c38294d7943686675f34b26088a2705e93184f" }
-open-finder-core = { path = "crates/core", version = "0.0.0" }
+open-finder-core = { path = "crates/core", version = "0.0.1" }
 
 [profile.release]
 lto = true

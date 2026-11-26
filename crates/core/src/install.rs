@@ -371,7 +371,7 @@ mod tests {
         let config_dir = root.join("OpenFinder");
         fs::create_dir_all(&config_dir).unwrap();
         fs::write(config_dir.join("config.json"), "{}").unwrap();
-        fs::write(config_dir.join("install.json"), r#"{"appVersion":"0.0.1"}"#).unwrap();
+        fs::write(config_dir.join("install.json"), r#"{"appVersion":"9.9.9"}"#).unwrap();
 
         let plan =
             plan_install_with(Platform::Windows, &|key| env.get(key).cloned(), &InstallOptions { no_shortcut: false, reset_config: true })

@@ -1,6 +1,6 @@
 {
     "name": "@wae/open-finder",
-    "version": "0.0.0",
+    "version": "0.0.1",
     "description": "OpenFinder meta package, typed library, and agent CLI",
     "license": "Apache-2.0",
     "type": "module",
