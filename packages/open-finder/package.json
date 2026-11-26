@@ -8,7 +8,7 @@
         "node": ">=22"
     },
     "bin": {
-        "open-finder": "./dist/cli.js"
+        "open-finder": "dist/cli.js"
     },
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -18,7 +18,12 @@
             "import": "./dist/index.js"
         }
     },
-    "files": ["dist", "locales", "Readme.md", "License.md"],
+    "files": [
+        "dist",
+        "locales",
+        "Readme.md",
+        "License.md"
+    ],
     "scripts": {
         "build": "tsc -p tsconfig.json"
     },
@@ -28,7 +33,10 @@
     "optionalDependencies": {
         "@wae/open-finder-win32-x64": "workspace:*"
     },
-    "repository": "https://github.com/nyar-os/OpenFinder",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/nyar-os/OpenFinder.git"
+    },
     "devDependencies": {
         "@types/node": "^22.20.4",
         "typescript": "^5.9.2"
