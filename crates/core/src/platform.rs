@@ -118,7 +118,11 @@ impl Capabilities {
 /// `index` and `usn` are available only where the NTFS volume backend is
 /// compiled. `search` and the explicit `portable-walk` mode are portable.
 pub fn capabilities() -> Capabilities {
-    let mut items = vec![Capability::available(capability_ids::SEARCH), Capability::available(capability_ids::PORTABLE_WALK)];
+    let mut items = vec![
+        Capability::available(capability_ids::SEARCH),
+        Capability::available(capability_ids::PORTABLE_WALK),
+        Capability::available(capability_ids::CONTENT_SCAN),
+    ];
     if cfg!(windows) {
         items.push(Capability::available(capability_ids::INDEX_BUILD));
         items.push(Capability::available(capability_ids::INDEX_UPDATE));

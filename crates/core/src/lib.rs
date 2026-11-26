@@ -17,6 +17,7 @@ mod mft;
 mod ntfs;
 pub mod platform;
 mod query;
+mod scan;
 mod usn;
 mod volume;
 mod walk;
@@ -33,4 +34,5 @@ pub use install::{
 };
 pub use platform::{Capabilities, Capability, Platform, capabilities, platform_arch, platform_name};
 pub use query::{EntryKind, QuerySpec, SearchHit, SearchPage, SortKey, search};
+pub use scan::{BinaryPolicy, CODE_PRESET_DIRS, ContentFilter, ExcludePreset, ScanBudget, ScanHit, ScanOptions, ScanPage, ScanSort, scan};
 pub use walk::{WalkOptions, walk};

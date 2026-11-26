@@ -10,6 +10,7 @@ use crate::{
     index::{BuildReport, UpdateReport, VolumeReport},
     install::{InstallPlan, UninstallPlan},
     query::SearchPage,
+    scan::ScanPage,
 };
 
 /// Capability ids shared by the domain, the N-API boundary, and skills.
@@ -22,6 +23,8 @@ pub mod capability_ids {
     pub const SEARCH: &str = "search";
     /// Explicit non-index directory walk.
     pub const PORTABLE_WALK: &str = "portable-walk";
+    /// Content-condition scan (line-count predicates over real file reads).
+    pub const CONTENT_SCAN: &str = "content-scan";
     /// Install-or-upgrade planning.
     pub const INSTALL_PLAN: &str = "install-plan";
     /// Install-or-upgrade execution.
@@ -116,6 +119,22 @@ impl AuditFields {
                 page.total,
                 page.root.as_deref().unwrap_or("."),
                 page.hits.len()
+            ),
+        }
+    }
+
+    /// Fields for a content scan.
+    pub fn for_scan(page: &ScanPage) -> Self {
+        Self {
+            capability: capability_ids::CONTENT_SCAN.to_string(),
+            target_count: page.total,
+            target_summary: format!(
+                "{} matches under {} (content scan, {} files read, {} skipped{})",
+                page.total,
+                page.root.as_deref().unwrap_or("."),
+                page.scanned,
+                page.skipped,
+                if page.budget_exceeded { ", budget exhausted" } else { "" }
             ),
         }
     }

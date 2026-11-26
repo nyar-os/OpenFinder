@@ -363,7 +363,7 @@ fn compile_path_filter(filter: Option<&str>) -> Result<Option<Regex>> {
         .map_err(|error| Error::message(format!("invalid path filter: {error}")))
 }
 
-fn glob_to_regex(pattern: &str) -> String {
+pub(crate) fn glob_to_regex(pattern: &str) -> String {
     let mut expression = String::from("^");
     for character in pattern.chars() {
         match character {
