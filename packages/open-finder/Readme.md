@@ -5,12 +5,19 @@ CLI.
 
 ```sh
 open-finder capabilities --json
+open-finder volumes --json
+open-finder inspect --path <path> --json
 open-finder index --volume C: --dry-run --json
 open-finder index --volume C: --actor <id> --json
 open-finder index --update --json
-open-finder search --pattern "*.dll" --path-filter "\\Windows" --json
+open-finder scan --pattern "*.dll" --path-filter "\\Windows" --json
 open-finder audit --limit 20 --json
 ```
+
+`volumes` and `inspect` are read-only diagnostics. `volumes` reports filesystem,
+capacity, and the index each volume holds; `inspect` reports one path's metadata,
+recursive size, attributes, reparse target, and minimal git state parsed from
+`.git`. Neither writes the index or spawns an external tool.
 
 `index` reads `$MFT` directly and needs an elevated process. A denied volume
 handle is reported as `dependency_blocked`. `--update` applies USN journal

@@ -39,6 +39,8 @@ export interface NativeBindings {
     platform(): string;
     defaultIndexDir(): string;
     inspectVolume(options: { volume: string }): unknown;
+    volumes(): unknown;
+    inspectPath(options: { path: string; recursive?: boolean; maxEntries?: number }): unknown;
     indexBuild(options: { volume: string; indexDir?: string; recordLimit?: number }): unknown;
     indexUpdate(options: { indexDir?: string; maxRecords?: number }): unknown;
     search(options: Record<string, unknown>): unknown;

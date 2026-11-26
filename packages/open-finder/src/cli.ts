@@ -22,6 +22,7 @@ import {
     defaultIndexDir,
     indexBuild,
     indexUpdate,
+    inspectPath,
     inspectVolume,
     installApply,
     installPlan,
@@ -31,10 +32,12 @@ import {
     uninstallApply,
     uninstallPlan,
     version,
+    volumes,
     walk,
     type BuildReport,
     type CapabilityItem,
     type InstallPlan,
+    type PathReport,
     type PlannedAction,
     type QuerySpec,
     type ScanOptions,
@@ -43,6 +46,7 @@ import {
     type UninstallPlan,
     type UpdateReport,
     type VolumeReport,
+    type VolumesReport,
 } from './index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -143,6 +147,65 @@ function formatVolume(report: VolumeReport): string {
         `usn: ${report.journalId === null ? '(unavailable)' : `id ${report.journalId}, first ${report.firstUsn}, next ${report.nextUsn}`}`,
         `requiresElevation: ${report.requiresElevation}`,
     ].join('\n');
+}
+
+function formatBytes(bytes: number | null): string {
+    if (bytes === null) return '?';
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function formatVolumes(report: VolumesReport): string {
+    const lines = [`platform: ${report.platform}`, `indexDir: ${report.indexDir}`, ''];
+    if (!report.volumes.length) lines.push('(no volumes)');
+    for (const volume of report.volumes) {
+        const name = volume.label ? `${volume.volume} ${volume.label}` : volume.volume;
+        const filesystem = volume.filesystem ?? 'unknown';
+        const capacity = volume.totalBytes === null ? '?' : `${formatBytes(volume.availableBytes)} free / ${formatBytes(volume.totalBytes)}`;
+        lines.push(`${name}  ${filesystem} ${volume.driveType}  ${capacity}`);
+        const index = volume.index;
+        if (index.present) {
+            const updated = index.updatedAtMs === null ? '?' : formatDuration(index.updatedAtMs);
+            lines.push(`  index: ${index.dir} entries=${index.entryCount ?? '?'} cursor=${index.cursor ?? '?'} updated=${updated}`);
+            if (index.error) lines.push(`  index error: ${index.error}`);
+        }
+        else {
+            lines.push(`  index: absent (${index.dir})`);
+        }
+    }
+    if (report.notes.length) lines.push('', ...report.notes.map((note) => `note: ${note}`));
+    return lines.join('\n');
+}
+
+function formatInspect(report: PathReport): string {
+    const lines = [`path: ${report.path}`, `exists: ${report.exists}`, `kind: ${report.kind}`];
+    if (!report.exists) return lines.join('\n');
+    lines.push(`size: ${report.size} bytes`);
+    if (report.linkTarget) lines.push(`link: ${report.linkTarget}`);
+    if (report.attributes.length) lines.push(`attributes: ${report.attributes.join(', ')}`);
+    lines.push(`created: ${formatDuration(report.createdMs)}`);
+    lines.push(`modified: ${formatDuration(report.modifiedMs)}`);
+    lines.push(`accessed: ${formatDuration(report.accessedMs)}`);
+    if (report.tree) {
+        const tree = report.tree;
+        const suffix = tree.truncated ? ' (truncated at the entry cap)' : '';
+        lines.push(`tree: ${tree.files} files, ${tree.dirs} dirs, ${tree.bytes} bytes${suffix}`);
+    }
+    if (report.repo) {
+        const repo = report.repo;
+        lines.push(`repo: ${repo.root}`);
+        lines.push(`  gitDir: ${repo.gitDir}`);
+        lines.push(`  branch: ${repo.branch ?? (repo.detached ? '(detached)' : '(unknown)')}`);
+        lines.push(`  head: ${repo.head ?? '(unresolved)'}`);
+        for (const remote of repo.remotes) lines.push(`  remote: ${remote.name} ${remote.url}`);
+    }
+    return lines.join('\n');
 }
 
 function formatBuild(report: BuildReport): string {
@@ -340,6 +403,14 @@ function requiredVolume(options: ParsedOptions): string {
     return volume;
 }
 
+function requiredPath(options: ParsedOptions): string {
+    const target = stringOption(options, 'path');
+    if (target === undefined) {
+        throw new AppError({ code: 'invalid_argument', message: '`--path` is required' });
+    }
+    return target;
+}
+
 function indexDirOption(options: ParsedOptions): string | undefined {
     return stringOption(options, 'index-dir');
 }
@@ -395,7 +466,40 @@ cli.command('index', 'cli.cmd.index')
         }
     });
 
-cli.command('search', 'cli.cmd.search')
+cli.command('volumes', 'cli.cmd.volumes')
+    .actionCtx(async (options, _args, ctx) => {
+        try {
+            bootstrap(options);
+            const report = volumes();
+            emit(options, ctx, report, formatVolumes(report));
+            return EXIT.OK;
+        }
+        catch (error) {
+            return fail(options, ctx, error);
+        }
+    });
+
+cli.command('inspect', 'cli.cmd.inspect')
+    .option('--path <path>', 'cli.opt.path')
+    .option('--shallow', 'cli.opt.shallow')
+    .option('--max-entries <n>', 'cli.opt.max-entries')
+    .actionCtx(async (options, _args, ctx) => {
+        try {
+            bootstrap(options);
+            const report = inspectPath({
+                path: requiredPath(options),
+                recursive: !flag(options, 'shallow'),
+                maxEntries: integerOption(options, 'max-entries'),
+            });
+            emit(options, ctx, report, formatInspect(report));
+            return EXIT.OK;
+        }
+        catch (error) {
+            return fail(options, ctx, error);
+        }
+    });
+
+cli.command('scan', 'cli.cmd.scan')
     .option('--pattern <glob>', 'cli.opt.pattern')
     .option('--regex', 'cli.opt.regex')
     .option('--match-path', 'cli.opt.match-path')
@@ -435,8 +539,8 @@ cli.command('search', 'cli.cmd.search')
         }
     });
 
-cli.command('scan', 'cli.cmd.scan')
-    .option('--root <path>', 'cli.opt.scan-root')
+cli.command('search', 'cli.cmd.search')
+    .option('--root <path>', 'cli.opt.search-root')
     .option('--include <globs>', 'cli.opt.include')
     .option('--exclude <globs>', 'cli.opt.exclude')
     .option('--exclude-preset <preset>', 'cli.opt.exclude-preset', { enum: ['code', 'none'] })
@@ -449,7 +553,7 @@ cli.command('scan', 'cli.cmd.scan')
     .option('--max-size <n>', 'cli.opt.max-size')
     .option('--modified-after-ms <n>', 'cli.opt.modified-after-ms')
     .option('--modified-before-ms <n>', 'cli.opt.modified-before-ms')
-    .option('--sort <key>', 'cli.opt.scan-sort', { enum: ['name', 'path', 'size', 'modified', 'lines'] })
+    .option('--sort <key>', 'cli.opt.search-sort', { enum: ['name', 'path', 'size', 'modified', 'lines'] })
     .option('--desc', 'cli.opt.desc')
     .option('--limit <n>', 'cli.opt.limit')
     .option('--binary <policy>', 'cli.opt.binary', { enum: ['skip', 'count'] })

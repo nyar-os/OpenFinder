@@ -3,11 +3,12 @@
     "private": true,
     "type": "module",
     "packageManager": "pnpm@10.28.0",
-    "description": "OpenFinder workspace: Rust crates, npm application packages, CLI, skills, and VMZ UI",
+    "description": "Fast file search engine with NTFS $MFT direct indexing and USN Journal incremental updates",
     "license": "Apache-2.0",
     "engines": {
         "node": ">=22"
     },
+    "keywords": ["file-search", "mft", "usn-journal", "glob", "fast-index"],
     "scripts": {
         "build:napi": "wae native build",
         "build:ts": "pnpm --filter @wae/open-finder run build",

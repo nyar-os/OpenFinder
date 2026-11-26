@@ -7,6 +7,7 @@
 use serde::Serialize;
 
 use crate::{
+    diagnostics::{PathReport, VolumesReport},
     index::{BuildReport, UpdateReport, VolumeReport},
     install::{InstallPlan, UninstallPlan},
     query::SearchPage,
@@ -25,6 +26,10 @@ pub mod capability_ids {
     pub const PORTABLE_WALK: &str = "portable-walk";
     /// Content-condition scan (line-count predicates over real file reads).
     pub const CONTENT_SCAN: &str = "content-scan";
+    /// Read-only logical volume and index status report.
+    pub const VOLUMES: &str = "volumes";
+    /// Read-only single-path metadata and repository inspection.
+    pub const INSPECT: &str = "inspect";
     /// Install-or-upgrade planning.
     pub const INSTALL_PLAN: &str = "install-plan";
     /// Install-or-upgrade execution.
@@ -136,6 +141,25 @@ impl AuditFields {
                 page.skipped,
                 if page.budget_exceeded { ", budget exhausted" } else { "" }
             ),
+        }
+    }
+
+    /// Fields for a read-only volume report.
+    pub fn for_volumes(report: &VolumesReport) -> Self {
+        let indexed = report.volumes.iter().filter(|volume| volume.index.present).count();
+        Self {
+            capability: capability_ids::VOLUMES.to_string(),
+            target_count: report.volumes.len() as u64,
+            target_summary: format!("{} volumes, {} indexed", report.volumes.len(), indexed),
+        }
+    }
+
+    /// Fields for a read-only path inspection.
+    pub fn for_inspect(report: &PathReport) -> Self {
+        Self {
+            capability: capability_ids::INSPECT.to_string(),
+            target_count: 1,
+            target_summary: format!("{} ({}, exists={})", report.path, report.kind, report.exists),
         }
     }
 

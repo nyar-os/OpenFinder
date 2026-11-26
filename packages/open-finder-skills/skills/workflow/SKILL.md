@@ -51,9 +51,32 @@ When the response reports `"strategy": "usn-enum"` together with
 changes came from MFT enumeration. Deletions are then invisible, so say that
 when you report results instead of implying the index is exact.
 
-## 3. Search
+## 3. Read-only diagnostics
 
-   `open-finder search --pattern <glob> --path-filter <path> --json`
+Answer "which volumes are indexed" and "what is this path" without PowerShell,
+`wmic`, a third-party search tool, or a `git` process. Both commands only read
+host state.
+
+   `open-finder volumes --json`
+
+Each row carries `filesystem`, `ntfs`, capacity, and `index` (`dir`, `present`,
+`entryCount`, `cursor`). `index.present: false` means that volume has no index;
+build one with step 2 before scanning it.
+
+   `open-finder inspect --path <path> --json`
+
+`inspect` reports `exists`, `kind`, `size`, Windows `attributes`, a symlink or
+junction `linkTarget`, and, for a directory, recursive `tree` totals. `--shallow`
+skips the tree walk and `--max-entries <n>` caps it; when the cap stops the walk,
+`tree.truncated` is true.
+
+When the path is inside a git checkout, `repo` carries `root`, `gitDir`,
+`branch`, `head`, `detached`, and parsed `remotes`, read from `.git` directly. It
+deliberately reports no dirty state and no ahead/behind counts.
+
+## 4. Scan the index
+
+   `open-finder scan --pattern <glob> --path-filter <path> --json`
 
 Filters compose: `--regex`, `--match-path`, `--kind <kind>`,
 `--min-size`, `--max-size`, `--modified-after-ms`, `--modified-before-ms`,
@@ -67,16 +90,16 @@ A portable walk that stops at `--max-entries` returns `"truncated": true`. Treat
 its `total` as the inspected count and say so instead of reporting a folder as
 fully searched.
 
-## 4. Explicit non-index search
+## 5. Explicit non-index scan
 
-Only use this when the user asked to search one folder, or when
+Only use this when the user asked to scan one folder, or when
 `capabilities` reports `unsupported_platform` and the user accepted a
 non-indexed answer. Results are labelled `"indexed": false` and
 `"mode": "portable-walk"`.
 
-   `open-finder search --mode <mode> --root <path> --pattern <glob> --json`
+   `open-finder scan --mode <mode> --root <path> --pattern <glob> --json`
 
-## 5. Audit
+## 6. Audit
 
 Every call is recorded by the shared audit facility. Use `--actor-kind agent`
 and a stable `--actor` id so records are attributable.
@@ -91,4 +114,7 @@ and a stable `--actor` id so records are attributable.
   retry a capability failure with elevated privileges on your own.
 - Do not present portable-walk output as an NTFS index result.
 - Do not treat `--limit` as a total result count.
+- `volumes` and `inspect` are read-only and need no confirmation. Never replace
+  them with PowerShell, `wmic`, Everything, or the `git` binary; they are the
+  supported internal path.
 - Never edit the index files directly. Rebuild or update through the CLI.

@@ -10,9 +10,10 @@
 use std::{cell::RefCell, env, path::PathBuf};
 
 use open_finder_core::{
-    AuditFields, BuildOptions, CapabilityState, Error as CoreError, InstallOptions, QuerySpec, SortKey, UninstallOptions, WalkOptions,
-    apply_install, apply_uninstall, build_index, capabilities as core_capabilities, capability_ids, config_dir, default_index_dir,
-    inspect_volume, load_index, plan_install, plan_uninstall, platform_name, search, update_index, walk,
+    AuditFields, BuildOptions, CapabilityState, Error as CoreError, InspectOptions, InstallOptions, QuerySpec, SortKey, UninstallOptions,
+    WalkOptions, apply_install, apply_uninstall, build_index, capabilities as core_capabilities, capability_ids, config_dir, default_index_dir,
+    inspect as inspect_path, inspect_volume, load_index, plan_install, plan_uninstall, platform_name, search, update_index,
+    volumes as list_volumes, walk,
 };
 use serde_json::{Value, json};
 use wae::{
@@ -191,13 +192,17 @@ fn object_arg(ctx: &CallContext) -> Result<Option<JsValue>> {
 }
 
 fn optional_bool(obj: Option<JsValue>, name: &str) -> Result<bool> {
+    optional_bool_or(obj, name, false)
+}
+
+fn optional_bool_or(obj: Option<JsValue>, name: &str, fallback: bool) -> Result<bool> {
     let Some(obj) = obj
     else {
-        return Ok(false);
+        return Ok(fallback);
     };
     let value = obj.get_named(name)?;
     if value.is_undefined()? {
-        return Ok(false);
+        return Ok(fallback);
     }
     value.as_bool()
 }
@@ -532,6 +537,47 @@ fn search_walk(ctx: CallContext) -> Result<JsValue> {
     }
 }
 
+#[function(js_name = "volumes")]
+fn volumes_fn(ctx: CallContext) -> Result<JsValue> {
+    let result = audit::run(capability_ids::VOLUMES, Mode::DryRun, Value::Null, || {
+        let report = list_volumes()?;
+        let fields = AuditFields::for_volumes(&report);
+        Ok((report, Summary::new(fields.target_count, fields.target_summary)))
+    });
+    match result {
+        Ok(report) => value_to_js(&ctx, &report),
+        Err(error) => Err(core_error(error)),
+    }
+}
+
+#[function(js_name = "inspectPath")]
+fn inspect_path_fn(ctx: CallContext) -> Result<JsValue> {
+    let arg = object_arg(&ctx)?;
+    let Some(path) = optional_string(arg, "path")?.filter(|path| !path.trim().is_empty())
+    else {
+        return Err(core_error(CoreError::message("path is required, for example `{ path: \"C:\\\\\" }`")));
+    };
+    let options = InspectOptions {
+        path: PathBuf::from(&path),
+        recursive: optional_bool_or(arg, "recursive", true)?,
+        max_entries: optional_u64(arg, "maxEntries")?.unwrap_or(200_000),
+    };
+    let params = json!({
+        "path": options.path.display().to_string(),
+        "recursive": options.recursive,
+        "maxEntries": options.max_entries,
+    });
+    let result = audit::run(capability_ids::INSPECT, Mode::DryRun, params, move || {
+        let report = inspect_path(&options)?;
+        let fields = AuditFields::for_inspect(&report);
+        Ok((report, Summary::new(fields.target_count, fields.target_summary)))
+    });
+    match result {
+        Ok(report) => value_to_js(&ctx, &report),
+        Err(error) => Err(core_error(error)),
+    }
+}
+
 #[function(js_name = "platform")]
 fn platform(ctx: CallContext) -> Result<JsValue> {
     ctx.env().string(platform_name())
@@ -757,7 +803,8 @@ fn scan_content(ctx: CallContext) -> Result<JsValue> {
     let text = raw.as_string().map_err(|_| invalid_argument("`request` must be a JSON string".to_string()))?;
     let options: open_finder_core::ScanOptions =
         serde_json::from_str(&text).map_err(|error| invalid_argument(format!("invalid scan request: {error}")))?;
-    let params = json!({ "root": options.root.display().to_string(), "minLines": options.content.min_lines, "maxLines": options.content.max_lines });
+    let params =
+        json!({ "root": options.root.display().to_string(), "minLines": options.content.min_lines, "maxLines": options.content.max_lines });
     let result = audit::run(capability_ids::CONTENT_SCAN, Mode::Execute, params, move || {
         let page = open_finder_core::scan(&options)?;
         let fields = AuditFields::for_scan(&page);
@@ -783,6 +830,8 @@ register_module![
     search_fn,
     search_walk,
     scan_content,
+    volumes_fn,
+    inspect_path_fn,
     platform,
     install_plan,
     install_apply,

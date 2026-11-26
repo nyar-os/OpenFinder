@@ -122,12 +122,19 @@ pub fn capabilities() -> Capabilities {
         Capability::available(capability_ids::SEARCH),
         Capability::available(capability_ids::PORTABLE_WALK),
         Capability::available(capability_ids::CONTENT_SCAN),
+        Capability::available(capability_ids::INSPECT),
     ];
     if cfg!(windows) {
+        items.push(Capability::available(capability_ids::VOLUMES));
         items.push(Capability::available(capability_ids::INDEX_BUILD));
         items.push(Capability::available(capability_ids::INDEX_UPDATE));
     }
     else {
+        items.push(Capability::unavailable(
+            capability_ids::VOLUMES,
+            CapabilityState::UnsupportedPlatform,
+            "logical volume enumeration uses the Windows volume API; no equivalent backend exists on this target",
+        ));
         items.push(Capability::unavailable(
             capability_ids::INDEX_BUILD,
             CapabilityState::UnsupportedPlatform,
@@ -157,6 +164,7 @@ pub fn capabilities() -> Capabilities {
             "index is built by reading $MFT directly and requires an elevated volume handle; a permission failure is reported as `dependency_blocked`, never as a silent directory walk".to_string(),
             "portable-walk is an explicit non-index mode and its results are labelled `indexed: false`".to_string(),
             "content-scan reads file bytes under explicit budgets; it is a separate entry point from search and never answers from the index".to_string(),
+            "volumes and inspect are read-only diagnostics: they never write the index, never need elevation, and never spawn an external tool".to_string(),
             "gui availability is confirmed by the structured openGui error from the wae facade".to_string(),
         ],
     }
@@ -172,6 +180,7 @@ mod tests {
         assert!(report.is_available(capability_ids::SEARCH));
         assert!(report.is_available(capability_ids::PORTABLE_WALK));
         assert!(report.is_available(capability_ids::CONTENT_SCAN));
+        assert!(report.is_available(capability_ids::INSPECT));
     }
 
     #[test]
@@ -179,13 +188,16 @@ mod tests {
         let report = capabilities();
         let build = report.get(capability_ids::INDEX_BUILD).expect("index-build is reported");
         let update = report.get(capability_ids::INDEX_UPDATE).expect("index-update is reported");
+        let volumes = report.get(capability_ids::VOLUMES).expect("volumes is reported");
         if cfg!(windows) {
             assert!(build.is_available());
             assert!(update.is_available());
+            assert!(volumes.is_available());
         }
         else {
             assert_eq!(build.state, Some(CapabilityState::UnsupportedPlatform));
             assert_eq!(update.state, Some(CapabilityState::UnsupportedPlatform));
+            assert_eq!(volumes.state, Some(CapabilityState::UnsupportedPlatform));
         }
     }
 

@@ -43,6 +43,89 @@ export interface VolumeReport {
     requiresElevation: boolean;
 }
 
+/** Index presence and header fields for one volume. */
+export interface IndexStatus {
+    dir: string;
+    present: boolean;
+    schema: string | null;
+    entryCount: number | null;
+    cursor: number | null;
+    builtAtMs: number | null;
+    updatedAtMs: number | null;
+    error: string | null;
+}
+
+/** One logical volume. */
+export interface VolumeInfo {
+    volume: string;
+    label: string | null;
+    filesystem: string | null;
+    ntfs: boolean;
+    driveType: string;
+    volumeSerial: number | null;
+    totalBytes: number | null;
+    freeBytes: number | null;
+    availableBytes: number | null;
+    index: IndexStatus;
+}
+
+/** Report from the read-only `volumes` command. */
+export interface VolumesReport {
+    platform: string;
+    indexDir: string;
+    volumes: VolumeInfo[];
+    notes: string[];
+}
+
+/** Recursive directory totals. */
+export interface TreeStats {
+    files: number;
+    dirs: number;
+    bytes: number;
+    entries: number;
+    truncated: boolean;
+}
+
+/** One git remote parsed from `.git/config`. */
+export interface RemoteRef {
+    name: string;
+    url: string;
+}
+
+/** Minimal git repository state parsed from `.git` without a git process. */
+export interface RepoSummary {
+    root: string;
+    gitDir: string;
+    branch: string | null;
+    head: string | null;
+    detached: boolean;
+    remotes: RemoteRef[];
+}
+
+/** One inspected path. */
+export interface PathReport {
+    path: string;
+    exists: boolean;
+    kind: 'file' | 'dir' | 'symlink' | 'other' | 'missing';
+    size: number;
+    linkTarget: string | null;
+    attributes: string[];
+    createdMs: number;
+    modifiedMs: number;
+    accessedMs: number;
+    tree: TreeStats | null;
+    repo: RepoSummary | null;
+}
+
+/** Options for `inspect`. */
+export interface InspectOptions {
+    path: string;
+    /** Compute a directory's recursive totals. Defaults to true. */
+    recursive?: boolean;
+    /** Entry cap for the recursive walk. Defaults to 200000. */
+    maxEntries?: number;
+}
+
 /** Result of a full `$MFT` index build. */
 export interface BuildReport {
     volume: string;
@@ -134,7 +217,7 @@ export interface SearchPage {
     tookMs: number;
 }
 
-/** Content predicate. At least one bound is required; that is what separates a scan from a metadata query. */
+/** Content predicate. At least one bound is required; that is what separates a content search from a metadata query. */
 export interface ContentFilter {
     minLines?: number;
     maxLines?: number;
@@ -156,7 +239,7 @@ export type BinaryPolicy = 'skip' | 'count';
 /** Sort key for scan results. */
 export type ScanSort = 'lines' | SortKey;
 
-/** Content scan request. A scan reads file bytes; a metadata-only question belongs in `search`. */
+/** Content search request. Reading file bytes is what separates it from the metadata scan. */
 export interface ScanOptions {
     root: string;
     /** Metadata pre-filter applied before any file is opened. */
@@ -313,6 +396,19 @@ export function defaultIndexDir(): string {
 /** Inspect a volume without writing an index. */
 export function inspectVolume(options: { volume: string }): VolumeReport {
     return invoke(() => loadNative().inspectVolume(options) as VolumeReport);
+}
+
+/** List logical volumes and the index each one holds. Read-only. */
+export function volumes(): VolumesReport {
+    return invoke(() => loadNative().volumes() as VolumesReport);
+}
+
+/**
+ * Inspect one path: metadata, optional recursive totals, and the nearest git
+ * repository parsed in-tree. Read-only; never spawns `git` or a search tool.
+ */
+export function inspectPath(options: InspectOptions): PathReport {
+    return invoke(() => loadNative().inspectPath(options) as PathReport);
 }
 
 /** Build a full index by reading `$MFT`. */

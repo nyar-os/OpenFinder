@@ -241,7 +241,8 @@ enum FileOutcome {
 /// newline. The read never allocates per line, and a file that already exceeds
 /// `maxLines` is abandoned mid-stream.
 fn count_lines(path: &std::path::Path, content: &ContentFilter, sniff_binary: bool) -> (FileOutcome, u64) {
-    let Ok(mut file) = File::open(path) else {
+    let Ok(mut file) = File::open(path)
+    else {
         return (FileOutcome::Failed, 0);
     };
     let mut buffer = vec![0u8; READ_CHUNK];
@@ -249,7 +250,8 @@ fn count_lines(path: &std::path::Path, content: &ContentFilter, sniff_binary: bo
     let mut total = 0u64;
     let mut last_byte: Option<u8> = None;
     loop {
-        let Ok(read) = file.read(&mut buffer) else {
+        let Ok(read) = file.read(&mut buffer)
+        else {
             return (FileOutcome::Failed, total);
         };
         if read == 0 {
@@ -374,6 +376,12 @@ pub fn scan(options: &ScanOptions) -> Result<ScanPage> {
         .follow_links(options.follow_symlinks)
         .error_policy(ErrorPolicy::Lenient)
         .filter(move |entry| {
+            // The walk kernel asks the predicate about the root itself. An
+            // explicit `--root node_modules` is a deliberate request, so the
+            // root is never pruned by name; only its children are.
+            if entry.depth() == 0 {
+                return Filter::Continue;
+            }
             let name = entry.file_name().to_string_lossy().to_lowercase();
             let is_dir = entry.is_folder();
             let excluded = preset_clone == ExcludePreset::Code && CODE_PRESET_DIRS.contains(&name.as_str())
@@ -392,7 +400,8 @@ pub fn scan(options: &ScanOptions) -> Result<ScanPage> {
             truncated = true;
             break;
         }
-        let Ok(entry) = item else {
+        let Ok(entry) = item
+        else {
             skipped += 1;
             continue;
         };
@@ -404,7 +413,8 @@ pub fn scan(options: &ScanOptions) -> Result<ScanPage> {
         if entry.is_folder() {
             continue;
         }
-        let Ok(metadata) = entry.metadata() else {
+        let Ok(metadata) = entry.metadata()
+        else {
             skipped += 1;
             continue;
         };
@@ -429,7 +439,12 @@ pub fn scan(options: &ScanOptions) -> Result<ScanPage> {
                 continue;
             }
         }
-        if options.candidates.path_filter.as_ref().filter(|filter| !filter.is_empty()).is_some_and(|filter| !path_text.to_lowercase().contains(&filter.to_lowercase()))
+        if options
+            .candidates
+            .path_filter
+            .as_ref()
+            .filter(|filter| !filter.is_empty())
+            .is_some_and(|filter| !path_text.to_lowercase().contains(&filter.to_lowercase()))
         {
             continue;
         }
@@ -635,6 +650,18 @@ mod tests {
         let page = scan(&opts).unwrap();
         assert!(page.hits.iter().all(|hit| hit.hit.name.ends_with(".rs")));
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn explicit_root_named_like_the_preset_is_never_pruned() {
+        let root = temp_root("explicit").join("node_modules");
+        let _ = fs::remove_dir_all(temp_root("explicit"));
+        fs::create_dir_all(&root).unwrap();
+        write_lines(&root.join("pkg.json"), 42);
+        let page = scan(&options(root.clone(), ContentFilter { min_lines: Some(40), max_lines: None })).unwrap();
+        assert_eq!(page.total, 1, "scanning `node_modules` directly must read it");
+        assert_eq!(page.hits[0].hit.name, "pkg.json");
+        fs::remove_dir_all(temp_root("explicit")).unwrap();
     }
 
     #[test]

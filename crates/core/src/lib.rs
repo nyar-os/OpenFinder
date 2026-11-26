@@ -10,6 +10,7 @@
 
 mod audit;
 mod config;
+mod diagnostics;
 mod error;
 mod index;
 mod install;
@@ -24,6 +25,9 @@ mod walk;
 
 pub use audit::{AuditFields, capability_ids};
 pub use config::{Config, config_dir, config_path, default_index_dir, load_config};
+pub use diagnostics::{
+    IndexStatus, InspectOptions, PathReport, RemoteRef, RepoSummary, TreeStats, VolumeInfo, VolumesReport, inspect, volumes,
+};
 pub use error::{CapabilityState, Error, ErrorPayload, Result, capability_code};
 pub use index::{
     BuildOptions, BuildReport, Index, IndexEntry, IndexMeta, UpdateReport, VolumeReport, build_index, inspect_volume, load_index, update_index,

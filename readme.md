@@ -15,7 +15,8 @@ OpenFinder is a fast file search engine with two execution paths:
 
 Every mode supports the same query surface: glob patterns, regex matching, size ranges, modification-time windows, file/dir kind filters, multi-key sorting, and pagination.
 
-- **Content scan (`scan`)** — a separate entry point for conditions that require reading file bytes, such as line-count filters for code analysis. Metadata queries never open a file; a scan always does, so it carries its own cost contract: directory-level `--exclude` pruning (the `code` preset drops `node_modules`, `.git`, `dist`, and friends before traversal), streaming line counts with early rejection, and budgets (`--max-files`, `--max-bytes`, `--timeout-ms`) that stop early and report `budgetExceeded` instead of silently returning partial results.
+- **Content search (`search`)** — a separate entry point for conditions that require reading file bytes, such as line-count filters for code analysis. Metadata queries never open a file; a content search always does, so it carries its own cost contract: directory-level `--exclude` pruning (the `code` preset drops `node_modules`, `.git`, `dist`, and friends before traversal), streaming line counts with early rejection, and budgets (`--max-files`, `--max-bytes`, `--timeout-ms`) that stop early and report `budgetExceeded` instead of silently returning partial results.
+- **Read-only diagnostics (`volumes`, `inspect`)** — enumerate logical volumes with filesystem, capacity, and index status, and inspect one path's metadata, recursive size, attributes, reparse target, and minimal git state (branch, HEAD, remotes). Both run in-tree: no `wmic`, no PowerShell, no third-party search tool, no `git` process, and no index write.
 
 ## 🚀 CLI in action
 
@@ -25,22 +26,29 @@ Build an index for your Windows C: volume (requires elevation):
 open-finder index --volume C: --json
 ```
 
-Search the indexed volume with a glob, path filter, and size sort:
+Scan the indexed volume with a glob, path filter, and size sort:
 
 ```bash
-open-finder search --pattern "*.dll" --path-filter "\\Windows\\System32" --sort size --desc --json
+open-finder scan --pattern "*.dll" --path-filter "\\Windows\\System32" --sort size --desc --json
 ```
 
 Use regex for installers on a non-indexed volume or a portable OS:
 
 ```bash
-open-finder search --mode walk --root ./downloads --regex --pattern "^(setup|installer).*\\.exe$" --limit 20
+open-finder scan --mode walk --root ./downloads --regex --pattern "^(setup|installer).*\\.exe$" --limit 20
 ```
 
-Find the biggest source files in a repository for a code review — line conditions belong to `scan`, and `node_modules` never slows it down:
+Find the biggest source files in a repository for a code review — line conditions belong to `search`, and `node_modules` never slows it down:
 
 ```bash
-open-finder scan --root ./repo --include "*.rs,*.ts" --min-lines 500 --sort lines --desc --limit 20 --json
+open-finder search --root ./repo --include "*.rs,*.ts" --min-lines 500 --sort lines --desc --limit 20 --json
+```
+
+Answer "which volumes are indexed" and "what is this path" without leaving the tool:
+
+```bash
+open-finder volumes --json
+open-finder inspect --path <path> --json
 ```
 
 ## 🏗️ How it works
@@ -79,7 +87,7 @@ The `$MFT` path skips directory enumeration entirely — it reads the flat recor
 |------------|---------|---------------|
 | `$MFT` direct indexing | ✅ elevated | ❌ unsupported_platform |
 | USN Journal incremental update | ✅ elevated | ❌ unsupported_platform |
-| Index-based search | ✅ | ✅ (after `index` on a supported platform) |
-| Walk-mode search | ✅ | ✅ |
+| Index-based scan | ✅ | ✅ (after `index` on a supported platform) |
+| Walk-mode scan | ✅ | ✅ |
 
 When elevation is not available on Windows, OpenFinder falls back to walk mode and reports the capability gap in the response. It never silently returns empty results.
