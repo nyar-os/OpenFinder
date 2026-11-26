@@ -156,6 +156,7 @@ pub fn capabilities() -> Capabilities {
         notes: vec![
             "index is built by reading $MFT directly and requires an elevated volume handle; a permission failure is reported as `dependency_blocked`, never as a silent directory walk".to_string(),
             "portable-walk is an explicit non-index mode and its results are labelled `indexed: false`".to_string(),
+            "content-scan reads file bytes under explicit budgets; it is a separate entry point from search and never answers from the index".to_string(),
             "gui availability is confirmed by the structured openGui error from the wae facade".to_string(),
         ],
     }
@@ -170,6 +171,7 @@ mod tests {
         let report = capabilities();
         assert!(report.is_available(capability_ids::SEARCH));
         assert!(report.is_available(capability_ids::PORTABLE_WALK));
+        assert!(report.is_available(capability_ids::CONTENT_SCAN));
     }
 
     #[test]

@@ -43,6 +43,7 @@ export interface NativeBindings {
     indexUpdate(options: { indexDir?: string; maxRecords?: number }): unknown;
     search(options: Record<string, unknown>): unknown;
     searchWalk(options: Record<string, unknown>): unknown;
+    scanContent(request: string): string;
     installPlan(options?: { noShortcut?: boolean; resetConfig?: boolean }): unknown;
     installApply(options?: { noShortcut?: boolean; resetConfig?: boolean }): unknown;
     uninstallPlan(options?: { keepConfig?: boolean }): unknown;

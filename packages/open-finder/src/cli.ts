@@ -26,6 +26,7 @@ import {
     installApply,
     installPlan,
     runGui,
+    scan,
     search,
     uninstallApply,
     uninstallPlan,
@@ -36,6 +37,8 @@ import {
     type InstallPlan,
     type PlannedAction,
     type QuerySpec,
+    type ScanOptions,
+    type ScanPage,
     type SearchPage,
     type UninstallPlan,
     type UpdateReport,
@@ -221,7 +224,7 @@ function formatUninstall(plan: UninstallPlan): string {
     ].join('\n');
 }
 
-function queryFrom(options: ParsedOptions): QuerySpec {
+function queryFrom(options: ParsedOptions, allowLinesSort = false): QuerySpec {
     const pattern = stringOption(options, 'pattern');
     if (pattern !== undefined && flag(options, 'regex')) {
         try {
@@ -237,8 +240,9 @@ function queryFrom(options: ParsedOptions): QuerySpec {
         throw new AppError({ code: 'invalid_argument', message: '`--kind` must be `file` or `dir`' });
     }
     const sort = stringOption(options, 'sort');
-    if (sort !== undefined && sort !== 'name' && sort !== 'path' && sort !== 'size' && sort !== 'modified') {
-        throw new AppError({ code: 'invalid_argument', message: '`--sort` must be `name`, `path`, `size`, or `modified`' });
+    const allowedSorts = allowLinesSort ? ['name', 'path', 'size', 'modified', 'lines'] : ['name', 'path', 'size', 'modified'];
+    if (sort !== undefined && !allowedSorts.includes(sort)) {
+        throw new AppError({ code: 'invalid_argument', message: `\`--sort\` must be ${allowedSorts.map((key) => `\`${key}\``).join(', ')}` });
     }
     return {
         pattern,
@@ -255,6 +259,77 @@ function queryFrom(options: ParsedOptions): QuerySpec {
         limit: integerOption(options, 'limit'),
         offset: integerOption(options, 'offset'),
     };
+}
+
+/** Comma-separated list option, e.g. `--include "*.rs,*.ts"`. */
+function listOption(options: ParsedOptions, key: string): string[] | undefined {
+    const raw = stringOption(options, key);
+    if (raw === undefined) return undefined;
+    const items = raw.split(',').map((item) => item.trim()).filter(Boolean);
+    return items.length ? items : undefined;
+}
+
+function scanRequest(options: ParsedOptions): ScanOptions {
+    const root = stringOption(options, 'root');
+    if (root === undefined) {
+        throw new AppError({ code: 'invalid_argument', message: '`--root <path>` is required for a content scan' });
+    }
+    const minLines = integerOption(options, 'min-lines');
+    const maxLines = integerOption(options, 'max-lines');
+    if (minLines === undefined && maxLines === undefined) {
+        throw new AppError({ code: 'invalid_argument', message: 'a scan needs a content condition: pass `--min-lines` and/or `--max-lines`' });
+    }
+    const sort = stringOption(options, 'sort') ?? 'lines';
+    const preset = stringOption(options, 'exclude-preset');
+    if (preset !== undefined && preset !== 'code' && preset !== 'none') {
+        throw new AppError({ code: 'invalid_argument', message: '`--exclude-preset` must be `code` or `none`' });
+    }
+    const binary = stringOption(options, 'binary');
+    if (binary !== undefined && binary !== 'skip' && binary !== 'count') {
+        throw new AppError({ code: 'invalid_argument', message: '`--binary` must be `skip` or `count`' });
+    }
+    // The candidate spec carries metadata filters only: scan sorts, pages, and
+    // budgets with its own options, and `lines` is not a metadata sort key.
+    const { sort: _sort, descending: _descending, limit: _limit, offset: _offset, ...candidates } = queryFrom(options, true);
+    return {
+        root,
+        candidates,
+        include: listOption(options, 'include'),
+        exclude: listOption(options, 'exclude'),
+        excludePreset: preset as ScanOptions['excludePreset'],
+        content: { minLines, maxLines },
+        sort: sort as ScanOptions['sort'],
+        descending: flag(options, 'desc'),
+        limit: integerOption(options, 'limit'),
+        binaryPolicy: binary as ScanOptions['binaryPolicy'],
+        followSymlinks: flag(options, 'follow-symlinks'),
+        maxDepth: integerOption(options, 'max-depth'),
+        maxEntries: integerOption(options, 'max-entries'),
+        budget: {
+            maxFiles: integerOption(options, 'max-files'),
+            maxBytes: integerOption(options, 'max-bytes'),
+            timeoutMs: integerOption(options, 'timeout-ms'),
+        },
+    };
+}
+
+function formatScan(page: ScanPage): string {
+    const lines = [
+        `mode: ${page.mode}`,
+        `root: ${page.root ?? '(unknown)'}`,
+        `total: ${page.total}`,
+        `scanned: ${page.scanned} files read`,
+        `skipped: ${page.skipped}`,
+        `took: ${page.tookMs} ms`,
+    ];
+    if (page.budgetExceeded) lines.push('note: budget exhausted, results are partial');
+    if (page.truncated) lines.push('note: stopped at `--max-entries`, the tree was not exhausted');
+    lines.push('');
+    lines.push(`${'lines'.padStart(9)}  ${'size'.padStart(10)}  modified            path`);
+    for (const hit of page.hits) {
+        lines.push(`${String(hit.lines).padStart(9)}  ${String(hit.size).padStart(10)}  ${formatDuration(hit.modifiedMs)}  ${hit.path}`);
+    }
+    return lines.join('\n');
 }
 
 function requiredVolume(options: ParsedOptions): string {
@@ -353,6 +428,42 @@ cli.command('search', 'cli.cmd.search')
                 })
                 : search({ ...spec, indexDir: indexDirOption(options) });
             emit(options, ctx, page, formatPage(page));
+            return EXIT.OK;
+        }
+        catch (error) {
+            return fail(options, ctx, error);
+        }
+    });
+
+cli.command('scan', 'cli.cmd.scan')
+    .option('--root <path>', 'cli.opt.scan-root')
+    .option('--include <globs>', 'cli.opt.include')
+    .option('--exclude <globs>', 'cli.opt.exclude')
+    .option('--exclude-preset <preset>', 'cli.opt.exclude-preset', { enum: ['code', 'none'] })
+    .option('--min-lines <n>', 'cli.opt.min-lines')
+    .option('--max-lines <n>', 'cli.opt.max-lines')
+    .option('--pattern <glob>', 'cli.opt.pattern')
+    .option('--regex', 'cli.opt.regex')
+    .option('--match-path', 'cli.opt.match-path')
+    .option('--min-size <n>', 'cli.opt.min-size')
+    .option('--max-size <n>', 'cli.opt.max-size')
+    .option('--modified-after-ms <n>', 'cli.opt.modified-after-ms')
+    .option('--modified-before-ms <n>', 'cli.opt.modified-before-ms')
+    .option('--sort <key>', 'cli.opt.scan-sort', { enum: ['name', 'path', 'size', 'modified', 'lines'] })
+    .option('--desc', 'cli.opt.desc')
+    .option('--limit <n>', 'cli.opt.limit')
+    .option('--binary <policy>', 'cli.opt.binary', { enum: ['skip', 'count'] })
+    .option('--follow-symlinks', 'cli.opt.follow-symlinks')
+    .option('--max-depth <n>', 'cli.opt.max-depth')
+    .option('--max-entries <n>', 'cli.opt.max-entries')
+    .option('--max-files <n>', 'cli.opt.max-files')
+    .option('--max-bytes <n>', 'cli.opt.max-bytes')
+    .option('--timeout-ms <n>', 'cli.opt.timeout-ms')
+    .actionCtx(async (options, _args, ctx) => {
+        try {
+            bootstrap(options);
+            const page = scan(scanRequest(options));
+            emit(options, ctx, page, formatScan(page));
             return EXIT.OK;
         }
         catch (error) {

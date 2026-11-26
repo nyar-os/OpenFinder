@@ -745,6 +745,33 @@ fn audit_query(ctx: CallContext) -> Result<JsValue> {
     }
 }
 
+/// Content-condition scan.
+///
+/// The request arrives as a JSON string because the `wae` N-API surface exposes
+/// no array reader on `JsValue`, and `ScanOptions` carries `include`/`exclude`
+/// glob lists. Serde parses the whole nested shape in one step, so the boundary
+/// stays thin and the core owns the validation.
+#[function(js_name = "scanContent")]
+fn scan_content(ctx: CallContext) -> Result<JsValue> {
+    let raw = ctx.args().first().copied().ok_or_else(|| invalid_argument("`request` JSON string is required".to_string()))?;
+    let text = raw.as_string().map_err(|_| invalid_argument("`request` must be a JSON string".to_string()))?;
+    let options: open_finder_core::ScanOptions =
+        serde_json::from_str(&text).map_err(|error| invalid_argument(format!("invalid scan request: {error}")))?;
+    let params = json!({ "root": options.root.display().to_string(), "minLines": options.content.min_lines, "maxLines": options.content.max_lines });
+    let result = audit::run(capability_ids::CONTENT_SCAN, Mode::Execute, params, move || {
+        let page = open_finder_core::scan(&options)?;
+        let fields = AuditFields::for_scan(&page);
+        Ok((page, Summary::new(fields.target_count, fields.target_summary)))
+    });
+    match result {
+        Ok(page) => {
+            let json = serde_json::to_string(&page).map_err(|error| Error::new(error.to_string()))?;
+            ctx.env().string(&json)
+        }
+        Err(error) => Err(core_error(error)),
+    }
+}
+
 register_module![
     version,
     build_info,
@@ -755,6 +782,7 @@ register_module![
     index_update,
     search_fn,
     search_walk,
+    scan_content,
     platform,
     install_plan,
     install_apply,

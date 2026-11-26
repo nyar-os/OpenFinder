@@ -134,6 +134,69 @@ export interface SearchPage {
     tookMs: number;
 }
 
+/** Content predicate. At least one bound is required; that is what separates a scan from a metadata query. */
+export interface ContentFilter {
+    minLines?: number;
+    maxLines?: number;
+}
+
+/** Resource bounds for one scan. Exhausting any of them stops the scan and sets `budgetExceeded`. */
+export interface ScanBudget {
+    maxFiles?: number;
+    maxBytes?: number;
+    timeoutMs?: number;
+}
+
+/** Directory-name preset pruned before traversal. */
+export type ExcludePreset = 'code' | 'none';
+
+/** What to do with files that sniff as binary. */
+export type BinaryPolicy = 'skip' | 'count';
+
+/** Sort key for scan results. */
+export type ScanSort = 'lines' | SortKey;
+
+/** Content scan request. A scan reads file bytes; a metadata-only question belongs in `search`. */
+export interface ScanOptions {
+    root: string;
+    /** Metadata pre-filter applied before any file is opened. */
+    candidates?: QuerySpec;
+    /** Glob allow-list for files, matched against the name and the full path. */
+    include?: string[];
+    /** Glob deny-list. A matching directory is pruned without traversing it. */
+    exclude?: string[];
+    /** Defaults to `code`: prunes node_modules, .git, dist, build, target, __pycache__, .venv, vendor. */
+    excludePreset?: ExcludePreset;
+    content: ContentFilter;
+    sort?: ScanSort;
+    descending?: boolean;
+    limit?: number;
+    binaryPolicy?: BinaryPolicy;
+    followSymlinks?: boolean;
+    maxDepth?: number;
+    maxEntries?: number;
+    budget?: ScanBudget;
+}
+
+/** One scan result: a search hit plus the measured line count. */
+export interface ScanHit extends SearchHit {
+    lines: number;
+}
+
+/** Outcome of a content scan. */
+export interface ScanPage {
+    total: number;
+    hits: ScanHit[];
+    scanned: number;
+    skipped: number;
+    /** True when a budget stopped the scan early; the result is partial. */
+    budgetExceeded: boolean;
+    truncated: boolean;
+    root: string | null;
+    tookMs: number;
+    mode: 'content-scan';
+}
+
 /** One planned host action. */
 export interface PlannedAction {
     kind: string;
@@ -270,6 +333,14 @@ export function search(options: SearchOptions = {}): SearchPage {
 /** Explicit non-index directory walk. */
 export function walk(options: WalkOptions): SearchPage {
     return invoke(() => loadNative().searchWalk(options as unknown as Record<string, unknown>) as SearchPage);
+}
+
+/**
+ * Content-condition scan. The request crosses the boundary as JSON because the
+ * option shape carries glob lists; the core owns validation.
+ */
+export function scan(options: ScanOptions): ScanPage {
+    return invoke(() => JSON.parse(loadNative().scanContent(JSON.stringify(options)) as string) as ScanPage);
 }
 
 /** Plan an install or upgrade without touching host state. */
